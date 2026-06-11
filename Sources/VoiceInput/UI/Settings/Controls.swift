@@ -381,3 +381,37 @@ struct CardHeading: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+
+// MARK: - Split drag handle
+
+/// A slim invisible gutter between master/detail panes that drags the sidebar
+/// width, macOS-split-view style: resize cursor on hover, live width updates
+/// while dragging, value persisted by the caller (e.g. @AppStorage).
+struct SplitDragHandle: View {
+    @Binding var width: Double
+    let range: ClosedRange<Double>
+
+    @State private var startWidth: Double?
+
+    var body: some View {
+        Color.clear
+            .frame(width: 16)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        if startWidth == nil { startWidth = width }
+                        NSCursor.resizeLeftRight.set()
+                        let proposed = (startWidth ?? width) + value.translation.width
+                        width = min(max(proposed, range.lowerBound), range.upperBound)
+                    }
+                    .onEnded { _ in
+                        startWidth = nil
+                        NSCursor.arrow.set()
+                    }
+            )
+    }
+}

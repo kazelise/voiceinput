@@ -77,6 +77,7 @@ final class AppSettings: ObservableObject {
         static let translateBaseURL             = "translateBaseURL"
         static let translateAPIKey              = "translateAPIKey"
         static let translateModel               = "translateModel"
+        static let polishReasoningEffort        = "polishReasoningEffort"
         static let vocabularyJSON               = "vocabularyJSON"
         static let voiceBoxOpacity              = "voiceBoxOpacity"
         static let voiceBoxVerticalPosition     = "voiceBoxVerticalPosition"
@@ -131,6 +132,7 @@ final class AppSettings: ObservableObject {
         if d.object(forKey: Key.translateBaseURL) == nil      { d.set("http://127.0.0.1:11434/v1", forKey: Key.translateBaseURL) }
         if d.object(forKey: Key.translateAPIKey) == nil       { d.set("", forKey: Key.translateAPIKey) }
         if d.object(forKey: Key.translateModel) == nil        { d.set("hy-mt2-1.8b-translate:latest", forKey: Key.translateModel) }
+        if d.object(forKey: Key.polishReasoningEffort) == nil { d.set("low", forKey: Key.polishReasoningEffort) }
         if d.object(forKey: Key.vocabularyJSON) == nil        { d.set("[]", forKey: Key.vocabularyJSON) }
         if d.object(forKey: Key.voiceBoxOpacity) == nil       { d.set(0.25, forKey: Key.voiceBoxOpacity) }
         if d.object(forKey: Key.voiceBoxVerticalPosition) == nil { d.set(0.62, forKey: Key.voiceBoxVerticalPosition) }
@@ -365,6 +367,13 @@ final class AppSettings: ObservableObject {
         return -1.0
     }() {
         didSet { defaults.set(voiceBoxOriginY, forKey: Key.voiceBoxOriginY) }
+    }
+
+    /// Reasoning effort sent with polish requests: "off" | "low" | "medium" | "high".
+    /// OpenRouter endpoints get {"reasoning": {"effort": X}}; other
+    /// OpenAI-compatible endpoints (OpenAI, Cerebras, …) get "reasoning_effort".
+    @Published var polishReasoningEffort: String = UserDefaults.standard.string(forKey: Key.polishReasoningEffort) ?? "low" {
+        didSet { defaults.set(polishReasoningEffort, forKey: Key.polishReasoningEffort) }
     }
 
     /// Whether the voice box is collapsed into its compact capsule form.

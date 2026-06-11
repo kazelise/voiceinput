@@ -82,9 +82,7 @@ struct GlassVoiceBox: View {
                 .padding(.horizontal, 2)
             bottomBar
         }
-        .padding(.horizontal, 26)
-        .padding(.top, 22)
-        .padding(.bottom, 18)
+        .padding(24) // equal breathing room on all four sides
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(glassBackground(shape))
         .overlay(specularRim(shape))
@@ -262,16 +260,21 @@ struct GlassVoiceBox: View {
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(Color.red.opacity(0.92))
                     .lineLimit(3)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else if state.transcript.isEmpty {
+                // Vertically centered in the flexible area so an empty box
+                // reads balanced instead of top-heavy.
                 Text(placeholder)
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(Theme.textSecondary.opacity(0.8))
                     .lineLimit(1)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
                 scrollingTranscript
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 24, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 24, maxHeight: .infinity)
         .padding(.trailing, 30) // keep the first line clear of the minimize button
     }
 

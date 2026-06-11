@@ -39,9 +39,13 @@ struct ProvidersTab: View {
         }
     }
 
+    /// User-adjustable source-list width, persisted across launches.
+    @AppStorage("providersSidebarWidth") private var sidebarWidth: Double = 170
+
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .top, spacing: 0) {
             sourceList
+            SplitDragHandle(width: $sidebarWidth, range: 140...320)
             detail
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -64,7 +68,7 @@ struct ProvidersTab: View {
             Spacer(minLength: 0)
         }
         .padding(8)
-        .frame(width: 170, alignment: .top)
+        .frame(width: max(140, sidebarWidth), alignment: .top)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Theme.sidebarBackground)
@@ -196,6 +200,20 @@ struct ProvidersTab: View {
                 help: "Chat model identifier."
             ) {
                 FilledTextField(placeholder: "openai/gpt-oss-120b:free", text: $settings.polishModel, monospaced: true)
+            }
+            InlineRow(
+                title: "Reasoning effort",
+                help: "For reasoning models (gpt-oss…). OpenRouter gets the nested reasoning object; OpenAI/Cerebras-style endpoints get reasoning_effort. Off sends neither."
+            ) {
+                Picker("", selection: $settings.polishReasoningEffort) {
+                    Text("Off").tag("off")
+                    Text("Low").tag("low")
+                    Text("Medium").tag("medium")
+                    Text("High").tag("high")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 240)
             }
             Hairline()
             TestButton(title: "Test Polish", outcome: polishOutcome) {

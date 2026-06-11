@@ -167,10 +167,19 @@ final class Refiner {
             "stream": false
         ]
 
-        // Include reasoning field ONLY when base URL contains "openrouter" (polish requests only).
-        // Translate request never carries reasoning per spec.
-        if case .polish = step, config.baseURL.lowercased().contains("openrouter") {
-            body["reasoning"] = ["effort": "low"]
+        // Reasoning effort applies to polish only (translate never carries it).
+        // Dialect differs by provider: OpenRouter takes a nested object, plain
+        // OpenAI-compatible endpoints (OpenAI, Cerebras, …) take a top-level
+        // "reasoning_effort" string. "off" sends neither.
+        if case .polish = step {
+            let effort = settings.polishReasoningEffort
+            if effort != "off" {
+                if config.baseURL.lowercased().contains("openrouter") {
+                    body["reasoning"] = ["effort": effort]
+                } else {
+                    body["reasoning_effort"] = effort
+                }
+            }
         }
 
         do {
