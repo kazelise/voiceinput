@@ -21,6 +21,7 @@ final class OverlayPanel {
     private let state: AppState
     private let settings: AppSettings
     private let hotkeyLabel = HotkeyLabelModel()
+    private let resizeController = BoxResizeController()
 
     /// Drives the SwiftUI show/dismiss scale+fade transition.
     private let presentation = PresentationModel()
@@ -81,6 +82,12 @@ final class OverlayPanel {
         guard let panel else { return }
         stopEscMonitors()
 
+        // A resize drag or an edge hover may be live when the session ends —
+        // SwiftUI fires neither onEnded nor a mouseExited for a hidden window,
+        // so the frame-resize cursor would stick in every app. Reset both.
+        resizeController.cancel()
+        NSCursor.arrow.set()
+
         let token = showToken
         presentation.isPresented = false
 
@@ -106,6 +113,7 @@ final class OverlayPanel {
             settings: settings,
             hotkeyLabel: hotkeyLabel,
             presentation: presentation,
+            resizeController: resizeController,
             onStop: { [weak self] in self?.onStop?() },
             onCancel: { [weak self] in self?.onCancel?() }
         )
@@ -138,22 +146,28 @@ final class OverlayPanel {
         moveObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: panel, queue: .main
         ) { [weak self] _ in
-            guard let self, let frame = self.panel?.frame, !self.isProgrammaticMove else { return }
+            guard let self, let frame = self.panel?.frame,
+                  !self.isProgrammaticMove,
+                  // Left/bottom-edge resizes also move the origin at gesture
+                  // rate; BoxResizeController.end() persists the final state.
+                  !self.resizeController.isResizing else { return }
             self.settings.voiceBoxOriginX = frame.origin.x
             self.settings.voiceBoxOriginY = frame.origin.y
+            self.settings.voiceBoxOriginSaved = true
         }
 
         self.panel = panel
         self.hostingView = hosting
+        resizeController.panel = panel
+        resizeController.settings = settings
         return panel
     }
 
-    /// The hosting size. The box is 680 wide; the SwiftUI root adds 40 pt of
-    /// padding on each side for the shadow, and the vertical content varies with
-    /// the transcript (1–3 lines), so we give a generous fixed canvas the box
-    /// centers in — tall enough for the 3-line case plus the soft shadow.
+    /// The hosting size: the user's box size plus 40 pt of shadow margin on
+    /// every side. The box fills the canvas minus that margin, so dragging the
+    /// panel edges (via BoxResizeController) resizes the box like a window.
     private var contentSize: NSSize {
-        NSSize(width: 680 + 80, height: 320)
+        NSSize(width: settings.voiceBoxWidth + 80, height: settings.voiceBoxHeight + 80)
     }
 
     // MARK: - Positioning
@@ -163,12 +177,16 @@ final class OverlayPanel {
         isProgrammaticMove = true
         defer { isProgrammaticMove = false }
 
-        // A dragged-to origin wins, as long as it's still on a connected screen.
-        let savedX = settings.voiceBoxOriginX
-        let savedY = settings.voiceBoxOriginY
-        if savedX >= 0, savedY >= 0 {
-            let saved = NSRect(x: savedX, y: savedY, width: size.width, height: size.height)
-            if NSScreen.screens.contains(where: { $0.visibleFrame.intersects(saved) }) {
+        // A dragged-to origin wins, as long as a meaningful part of the box
+        // (not a 1-pt sliver) is still on a connected screen.
+        if settings.voiceBoxOriginSaved {
+            let saved = NSRect(x: settings.voiceBoxOriginX, y: settings.voiceBoxOriginY,
+                               width: size.width, height: size.height)
+            let sufficientlyVisible = NSScreen.screens.contains {
+                let visible = $0.visibleFrame.intersection(saved)
+                return visible.width >= 100 && visible.height >= 50
+            }
+            if sufficientlyVisible {
                 panel.setFrame(saved, display: true)
                 return
             }
@@ -228,6 +246,88 @@ final class OverlayPanel {
     }
 }
 
+// MARK: - Box resizing
+
+/// Which window edges a resize handle drives.
+struct ResizeEdges: OptionSet {
+    let rawValue: Int
+    static let left   = ResizeEdges(rawValue: 1 << 0)
+    static let right  = ResizeEdges(rawValue: 1 << 1)
+    static let top    = ResizeEdges(rawValue: 1 << 2)
+    static let bottom = ResizeEdges(rawValue: 1 << 3)
+}
+
+/// Window-style resizing for the voice box. The SwiftUI handles in
+/// `GlassVoiceBox` report drag begin/move/end; deltas are computed from
+/// `NSEvent.mouseLocation` (global screen coordinates) so the math is immune
+/// to the view's own frame changing mid-drag. All calls arrive on the main
+/// thread (SwiftUI gestures + OverlayPanel wiring).
+final class BoxResizeController {
+    weak var panel: NSPanel?
+    weak var settings: AppSettings?
+
+    private(set) var isResizing = false
+    private var startFrame: NSRect = .zero
+    private var startMouse: NSPoint = .zero
+
+    // Panel-space limits = box limits + the 80 pt shadow canvas.
+    private let minSize = NSSize(width: 480 + 80, height: 170 + 80)
+    private let maxSize = NSSize(width: 1400 + 80, height: 640 + 80)
+
+    func begin() {
+        guard let panel else { return }
+        startFrame = panel.frame
+        startMouse = NSEvent.mouseLocation
+        isResizing = true
+    }
+
+    func update(edges: ResizeEdges) {
+        guard isResizing, let panel else { return }
+        let mouse = NSEvent.mouseLocation
+        let dx = mouse.x - startMouse.x
+        let dy = mouse.y - startMouse.y
+
+        var f = startFrame
+        if edges.contains(.right)  { f.size.width  = startFrame.width + dx }
+        if edges.contains(.left)   { f.size.width  = startFrame.width - dx
+                                     f.origin.x    = startFrame.origin.x + dx }
+        if edges.contains(.top)    { f.size.height = startFrame.height + dy }
+        if edges.contains(.bottom) { f.size.height = startFrame.height - dy
+                                     f.origin.y    = startFrame.origin.y + dy }
+
+        // Clamp while keeping the anchored (non-dragged) edge stationary.
+        let w = min(max(f.size.width, minSize.width), maxSize.width)
+        let h = min(max(f.size.height, minSize.height), maxSize.height)
+        if edges.contains(.left)   { f.origin.x += f.size.width - w }
+        if edges.contains(.bottom) { f.origin.y += f.size.height - h }
+        f.size.width = w
+        f.size.height = h
+
+        panel.setFrame(f, display: true)
+    }
+
+    func end() {
+        guard isResizing else { return }
+        isResizing = false
+        guard let panel, let settings else { return }
+        // Persist box dimensions (minus shadow canvas) and the new origin so
+        // the box reappears exactly as left.
+        settings.voiceBoxWidth = panel.frame.width - 80
+        settings.voiceBoxHeight = panel.frame.height - 80
+        settings.voiceBoxOriginX = panel.frame.origin.x
+        settings.voiceBoxOriginY = panel.frame.origin.y
+        settings.voiceBoxOriginSaved = true
+    }
+
+    /// Aborts a live resize without persisting (compact toggle or dismiss
+    /// mid-drag) and restores the cursor.
+    func cancel() {
+        guard isResizing else { return }
+        isResizing = false
+        NSCursor.arrow.set()
+    }
+}
+
 // MARK: - Non-activating panel subclass
 
 /// An `NSPanel` that refuses key/main status so showing the HUD never steals
@@ -260,6 +360,7 @@ fileprivate struct OverlayRootView: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var hotkeyLabel: HotkeyLabelModel
     @ObservedObject var presentation: PresentationModel
+    let resizeController: BoxResizeController
 
     var onStop: () -> Void
     var onCancel: () -> Void
@@ -269,6 +370,7 @@ fileprivate struct OverlayRootView: View {
             state: state,
             settings: settings,
             hotkeyLabel: hotkeyLabel,
+            resizeController: resizeController,
             onStop: onStop,
             onCancel: onCancel
         )

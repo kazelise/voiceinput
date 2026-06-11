@@ -83,6 +83,9 @@ final class AppSettings: ObservableObject {
         static let voiceBoxOriginX              = "voiceBoxOriginX"
         static let voiceBoxOriginY              = "voiceBoxOriginY"
         static let voiceBoxCompact              = "voiceBoxCompact"
+        static let voiceBoxWidth                = "voiceBoxWidth"
+        static let voiceBoxHeight               = "voiceBoxHeight"
+        static let voiceBoxOriginSaved          = "voiceBoxOriginSaved"
         static let appearancePreference         = "appearancePreference"
         static let mediaAutoPause               = "mediaAutoPause"
         static let historyEnabled               = "historyEnabled"
@@ -132,6 +135,14 @@ final class AppSettings: ObservableObject {
         if d.object(forKey: Key.voiceBoxOriginX) == nil       { d.set(-1.0, forKey: Key.voiceBoxOriginX) }
         if d.object(forKey: Key.voiceBoxOriginY) == nil       { d.set(-1.0, forKey: Key.voiceBoxOriginY) }
         if d.object(forKey: Key.voiceBoxCompact) == nil       { d.set(false, forKey: Key.voiceBoxCompact) }
+        if d.object(forKey: Key.voiceBoxWidth) == nil         { d.set(680.0, forKey: Key.voiceBoxWidth) }
+        if d.object(forKey: Key.voiceBoxHeight) == nil        { d.set(200.0, forKey: Key.voiceBoxHeight) }
+        if d.object(forKey: Key.voiceBoxOriginSaved) == nil   {
+            // Migrate from the old (-1, -1) sentinel scheme.
+            let hadOrigin = d.double(forKey: Key.voiceBoxOriginX) >= 0
+                && d.double(forKey: Key.voiceBoxOriginY) >= 0
+            d.set(hadOrigin, forKey: Key.voiceBoxOriginSaved)
+        }
         if d.object(forKey: Key.appearancePreference) == nil  { d.set("system", forKey: Key.appearancePreference) }
         if d.object(forKey: Key.mediaAutoPause) == nil        { d.set(true, forKey: Key.mediaAutoPause) }
         if d.object(forKey: Key.historyEnabled) == nil        { d.set(true, forKey: Key.historyEnabled) }
@@ -325,8 +336,15 @@ final class AppSettings: ObservableObject {
         didSet { defaults.set(voiceBoxVerticalPosition, forKey: Key.voiceBoxVerticalPosition) }
     }
 
+    /// Whether voiceBoxOriginX/Y holds a user-placed position. A separate flag
+    /// (not a coordinate sentinel) because origins are legitimately negative on
+    /// monitors left of / below the primary display.
+    @Published var voiceBoxOriginSaved: Bool = UserDefaults.standard.bool(forKey: Key.voiceBoxOriginSaved) {
+        didSet { defaults.set(voiceBoxOriginSaved, forKey: Key.voiceBoxOriginSaved) }
+    }
+
     /// Custom voice-box origin saved after the user drags the panel.
-    /// (-1, -1) means "unset" — fall back to voiceBoxVerticalPosition.
+    /// Only meaningful when voiceBoxOriginSaved is true.
     @Published var voiceBoxOriginX: Double = {
         if UserDefaults.standard.object(forKey: Key.voiceBoxOriginX) != nil {
             return UserDefaults.standard.double(forKey: Key.voiceBoxOriginX)
@@ -348,6 +366,25 @@ final class AppSettings: ObservableObject {
     /// Whether the voice box is collapsed into its compact capsule form.
     @Published var voiceBoxCompact: Bool = UserDefaults.standard.bool(forKey: Key.voiceBoxCompact) {
         didSet { defaults.set(voiceBoxCompact, forKey: Key.voiceBoxCompact) }
+    }
+
+    /// User-resized voice-box dimensions (points), persisted after edge drags.
+    @Published var voiceBoxWidth: Double = {
+        if UserDefaults.standard.object(forKey: Key.voiceBoxWidth) != nil {
+            return UserDefaults.standard.double(forKey: Key.voiceBoxWidth)
+        }
+        return 680
+    }() {
+        didSet { defaults.set(voiceBoxWidth, forKey: Key.voiceBoxWidth) }
+    }
+
+    @Published var voiceBoxHeight: Double = {
+        if UserDefaults.standard.object(forKey: Key.voiceBoxHeight) != nil {
+            return UserDefaults.standard.double(forKey: Key.voiceBoxHeight)
+        }
+        return 200
+    }() {
+        didSet { defaults.set(voiceBoxHeight, forKey: Key.voiceBoxHeight) }
     }
 
     /// "system" | "light" | "dark" — applied to NSApp.appearance at launch and on change.

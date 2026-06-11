@@ -90,13 +90,16 @@ struct AppearanceTab: View {
                         .font(.system(size: 13, design: .monospaced))
                         .foregroundStyle(Theme.textPrimary)
                         .frame(width: 48, alignment: .trailing)
-                    Button("Reset position") {
-                        settings.voiceBoxOriginX = -1
-                        settings.voiceBoxOriginY = -1
+                    Button("Reset layout") {
+                        settings.voiceBoxOriginSaved = false
+                        settings.voiceBoxWidth = 680
+                        settings.voiceBoxHeight = 200
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(settings.voiceBoxOriginX < 0)
+                    .disabled(!settings.voiceBoxOriginSaved
+                              && settings.voiceBoxWidth == 680
+                              && settings.voiceBoxHeight == 200)
                 }
             }
         }

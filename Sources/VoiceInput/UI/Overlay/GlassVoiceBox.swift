@@ -35,12 +35,14 @@ struct GlassVoiceBox: View {
     /// observed here so the badge updates live.
     @ObservedObject var hotkeyLabel: HotkeyLabelModel
 
+    /// Drives window-style edge resizing (owned by OverlayPanel).
+    let resizeController: BoxResizeController
+
     var onStop: () -> Void
     var onCancel: () -> Void
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    private let boxWidth: CGFloat = 680
     private let cornerRadius: CGFloat = 28
 
     private var shape: RoundedRectangle {
@@ -71,6 +73,8 @@ struct GlassVoiceBox: View {
         .animation(.spring(duration: 0.35), value: settings.translateEnabled)
     }
 
+    // The box fills the panel canvas (minus the shadow margin), so dragging the
+    // edge handles below resizes it like a normal macOS window.
     private var expandedBody: some View {
         VStack(alignment: .leading, spacing: 14) {
             transcriptArea
@@ -81,12 +85,53 @@ struct GlassVoiceBox: View {
         .padding(.horizontal, 26)
         .padding(.top, 22)
         .padding(.bottom, 18)
-        .frame(width: boxWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(glassBackground(shape))
         .overlay(specularRim(shape))
         .overlay(errorRim(shape))
         .clipShape(shape)
+        .overlay(resizeHandles)
         .modifier(BoxChrome())
+    }
+
+    /// Invisible window-style grips on the glass edge: 8 pt strips along each
+    /// side and 14 pt corner squares, with system frame-resize cursors.
+    private var resizeHandles: some View {
+        let grip: CGFloat = 8
+        let corner: CGFloat = 14
+        return Color.clear
+            .overlay(alignment: .top) {
+                ResizeHandle(edges: .top, controller: resizeController)
+                    .frame(height: grip).padding(.horizontal, corner)
+            }
+            .overlay(alignment: .bottom) {
+                ResizeHandle(edges: .bottom, controller: resizeController)
+                    .frame(height: grip).padding(.horizontal, corner)
+            }
+            .overlay(alignment: .leading) {
+                ResizeHandle(edges: .left, controller: resizeController)
+                    .frame(width: grip).padding(.vertical, corner)
+            }
+            .overlay(alignment: .trailing) {
+                ResizeHandle(edges: .right, controller: resizeController)
+                    .frame(width: grip).padding(.vertical, corner)
+            }
+            .overlay(alignment: .topLeading) {
+                ResizeHandle(edges: [.top, .left], controller: resizeController)
+                    .frame(width: corner, height: corner)
+            }
+            .overlay(alignment: .topTrailing) {
+                ResizeHandle(edges: [.top, .right], controller: resizeController)
+                    .frame(width: corner, height: corner)
+            }
+            .overlay(alignment: .bottomLeading) {
+                ResizeHandle(edges: [.bottom, .left], controller: resizeController)
+                    .frame(width: corner, height: corner)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                ResizeHandle(edges: [.bottom, .right], controller: resizeController)
+                    .frame(width: corner, height: corner)
+            }
     }
 
     // MARK: - Compact capsule
@@ -197,11 +242,12 @@ struct GlassVoiceBox: View {
     private var transcriptArea: some View {
         Group {
             if isError {
+                // No fixedSize here: at the minimum box height the area is
+                // shorter than 3 text lines and fixedSize would paint past it.
                 Text(errorMessage)
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(Color.red.opacity(0.92))
                     .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
             } else if state.transcript.isEmpty {
                 Text(placeholder)
                     .font(.system(size: 17, weight: .medium))
@@ -211,11 +257,12 @@ struct GlassVoiceBox: View {
                 scrollingTranscript
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 24, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// The live transcript in a pinned-to-tail scroll view: as new words stream
-    /// in past three lines, the view follows the freshest text automatically.
+    /// The live transcript in a pinned-to-tail scroll view filling whatever
+    /// height the user has sized the box to: short text reads from the top;
+    /// once it overflows, the view follows the freshest words automatically.
     /// The user can still flick upward to re-read; the next update re-pins.
     private var scrollingTranscript: some View {
         ScrollViewReader { proxy in
@@ -228,8 +275,7 @@ struct GlassVoiceBox: View {
                     .id("transcriptTail")
             }
             .scrollIndicators(.hidden)
-            .defaultScrollAnchor(.bottom)
-            .frame(maxHeight: 70) // ~3 lines at 17 pt; shorter text stays snug
+            .clipped() // the box clip is the panel shape; the viewport needs its own
             .onChange(of: state.transcript) { _, _ in
                 withAnimation(.easeOut(duration: 0.12)) {
                     proxy.scrollTo("transcriptTail", anchor: .bottom)
@@ -377,6 +423,58 @@ struct GlassVoiceBox: View {
             )
         }
         .fixedSize()
+    }
+}
+
+// MARK: - Resize handle
+
+/// An invisible strip on the glass edge that resizes the panel like a window
+/// frame. Cursor feedback uses the system frame-resize cursors; drag deltas
+/// are computed by `BoxResizeController` from global mouse coordinates.
+private struct ResizeHandle: View {
+    let edges: ResizeEdges
+    let controller: BoxResizeController
+
+    var body: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onHover { inside in
+                guard !controller.isResizing else { return }
+                if inside { cursor.set() } else { NSCursor.arrow.set() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { _ in
+                        if !controller.isResizing { controller.begin() }
+                        cursor.set()
+                        controller.update(edges: edges)
+                    }
+                    .onEnded { _ in
+                        controller.end()
+                        NSCursor.arrow.set()
+                    }
+            )
+            // Compact-toggle mid-drag tears this view down without onEnded
+            // ever firing — abort the resize so state and cursor don't stick.
+            .onDisappear { controller.cancel() }
+    }
+
+    private var cursor: NSCursor {
+        NSCursor.frameResize(position: position, directions: .all)
+    }
+
+    private var position: NSCursor.FrameResizePosition {
+        switch (edges.contains(.top), edges.contains(.bottom),
+                edges.contains(.left), edges.contains(.right)) {
+        case (true, _, true, _):  return .topLeft
+        case (true, _, _, true):  return .topRight
+        case (_, true, true, _):  return .bottomLeft
+        case (_, true, _, true):  return .bottomRight
+        case (true, _, _, _):     return .top
+        case (_, true, _, _):     return .bottom
+        case (_, _, true, _):     return .left
+        default:                  return .right
+        }
     }
 }
 
