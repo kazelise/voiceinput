@@ -86,6 +86,8 @@ final class AppSettings: ObservableObject {
         static let voiceBoxWidth                = "voiceBoxWidth"
         static let voiceBoxHeight               = "voiceBoxHeight"
         static let voiceBoxOriginSaved          = "voiceBoxOriginSaved"
+        static let capsuleWidth                 = "capsuleWidth"
+        static let capsuleHeight                = "capsuleHeight"
         static let appearancePreference         = "appearancePreference"
         static let mediaAutoPause               = "mediaAutoPause"
         static let historyEnabled               = "historyEnabled"
@@ -137,6 +139,8 @@ final class AppSettings: ObservableObject {
         if d.object(forKey: Key.voiceBoxCompact) == nil       { d.set(false, forKey: Key.voiceBoxCompact) }
         if d.object(forKey: Key.voiceBoxWidth) == nil         { d.set(680.0, forKey: Key.voiceBoxWidth) }
         if d.object(forKey: Key.voiceBoxHeight) == nil        { d.set(200.0, forKey: Key.voiceBoxHeight) }
+        if d.object(forKey: Key.capsuleWidth) == nil          { d.set(300.0, forKey: Key.capsuleWidth) }
+        if d.object(forKey: Key.capsuleHeight) == nil         { d.set(46.0, forKey: Key.capsuleHeight) }
         if d.object(forKey: Key.voiceBoxOriginSaved) == nil   {
             // Migrate from the old (-1, -1) sentinel scheme.
             let hadOrigin = d.double(forKey: Key.voiceBoxOriginX) >= 0
@@ -385,6 +389,25 @@ final class AppSettings: ObservableObject {
         return 200
     }() {
         didSet { defaults.set(voiceBoxHeight, forKey: Key.voiceBoxHeight) }
+    }
+
+    /// Compact-capsule dimensions (points), resizable independently of the box.
+    @Published var capsuleWidth: Double = {
+        if UserDefaults.standard.object(forKey: Key.capsuleWidth) != nil {
+            return UserDefaults.standard.double(forKey: Key.capsuleWidth)
+        }
+        return 300
+    }() {
+        didSet { defaults.set(capsuleWidth, forKey: Key.capsuleWidth) }
+    }
+
+    @Published var capsuleHeight: Double = {
+        if UserDefaults.standard.object(forKey: Key.capsuleHeight) != nil {
+            return UserDefaults.standard.double(forKey: Key.capsuleHeight)
+        }
+        return 46
+    }() {
+        didSet { defaults.set(capsuleHeight, forKey: Key.capsuleHeight) }
     }
 
     /// "system" | "light" | "dark" — applied to NSApp.appearance at launch and on change.

@@ -14,8 +14,13 @@ VoiceInput is a voice-input companion for macOS developers and writers. Activate
 - **Vocabulary biasing** with custom term hints (e.g., "Claude Code") sent to Soniox for better accuracy
 - **Translation** via Ollama (hy-mt2 model) to English, Simplified Chinese, Traditional Chinese, or Korean
 - **Three hotkey modes** on one key: Hold (push-to-talk), Tap (toggle), Double-tap (hands-free with silence auto-stop)
-- **Liquid Glass UI** — borderless floating voice box with adjustable transparency, waveform visualization, and ChatWise-style settings window
-- **Media control** — automatically pauses Spotify/Music during recording
+- **Liquid Glass UI** — borderless floating voice box with adjustable transparency, live auto-scrolling transcript, waveform visualization, and a ChatWise-style settings window
+- **Window-like voice box** — drag anywhere to move it, drag any edge/corner to resize it; both position and size persist
+- **Compact capsule mode** — minimize the box (⤡ button, top-right) into a small glass capsule with its own resizable dimensions
+- **Dictation history** — every completed session stores raw + refined transcripts and the audio (WAV); browse, search, replay, copy, and delete in the History window (⌘Y from the menu bar)
+- **Live menu-bar state** — template mic when idle, red filled mic while listening, yellow while finalizing, accent waveform while polishing
+- **Media control** — pauses Spotify/Apple Music precisely via AppleScript; other players (browsers, music apps) via CoreAudio playback detection + the system play/pause media key
+- **Theme override** — System / Light / Dark picker; all colors resolve dynamically at runtime
 - **Accessibility** — requires Microphone + Accessibility permissions; respects Reduce Transparency
 
 ## Requirements
@@ -51,10 +56,11 @@ The Makefile assembles a proper `.app` bundle (VoiceInput.app) with:
 
    ```bash
    cd /path/to/voiceinput
-   cp .env.local.example .env.local
-   # Edit .env.local with your API keys (never commit this file)
-   SONIOX_API_KEY=sk_...
+   # Create .env.local with your API keys (gitignored — never commit it)
+   cat > .env.local << 'EOF'
+   SONIOX_API_KEY=your_soniox_key
    OPENROUTER_API_KEY=sk-or-v1-...
+   EOF
    ```
 
 2. **Seed UserDefaults with keys:**
@@ -152,27 +158,33 @@ If it mishears "cloud code," the polish step uses the hint list to spot and corr
 
 ### Overlay Panel (during recording)
 
-- Floating Liquid Glass voice box (680 pt wide, center-screen X, positioned at 62% from bottom)
-- **Transcript area** (top): final text + interim text with soft shimmer
-- **Waveform** (center): real-time audio levels, ~72 rolling bars with gradient color
+- Floating Liquid Glass voice box (default 680×200 pt, centered at 62% from screen bottom)
+- **Move**: drag anywhere on the glass; **Resize**: drag any edge or corner like a normal window (system resize cursors). Position and size persist; "Reset layout" in Appearance restores defaults
+- **Transcript area** (top): final text + interim text with soft shimmer, auto-scrolls to the newest words past the visible height (flick up to re-read mid-dictation)
+- **Waveform** (center): real-time audio levels; bar count adapts to the box width
+- **Minimize** (⤡, top-right): collapses into a compact glass capsule (dot + waveform + countdown + stop + expand) — independently resizable, mode persists across sessions
 - **Bottom bar**:
   - Left: phase indicator dot (pulsing accent while listening, yellow finalizing, purple refining) + status label
   - Hands-free countdown pill (e.g., "2.5s") when active
-  - Polish & Translate status chips (small gray pills, accent-tinted when enabled)
+  - Polish & Translate chips — **click to toggle** the feature on/off
   - Right: Stop button + hotkey badge, Cancel button + Esc badge
 
 ### Settings Window (ChatWise style)
 
 640×560 minimum, full-size content, hidden title bar, icon-tab strip:
 
-1. **General**: App enable toggle, language hints field (ISO codes, e.g., `zh,en`)
+1. **General**: App enable toggle, language hints field (ISO codes, e.g., `zh,en`), "Pause media while dictating" toggle
 2. **Hotkey**: Key picker (Fn, Right ⌘, Right ⌥, Right ⇧, Right ⌃, Custom), shortcut recorder, timing steppers (tap/hold threshold, double-press window, hold forgive, silence duration)
 3. **Providers**: Master-detail source list (Soniox, OpenAI-compatible, Polish, Translate) with status dots and detail panes per provider
 4. **Vocabulary**: Term + mishearings table, +/− buttons, explainer card
-5. **Appearance**: Voice-box transparency slider (0% = clear glass, 100% = solid), vertical position slider, Preview button (shows sample transcription for 4 s)
+5. **Appearance**: Theme picker (System / Light / Dark), voice-box transparency slider (0% = clear glass, 100% = solid), vertical position slider, Reset layout, Preview button (shows sample transcription for 4 s)
 6. **Permissions**: Microphone + Accessibility rows with status and grant buttons
 
-Theme: ChatWise palette (blue accent #4E80EE light / #2464EB dark, warm stone sidebar, white content background). Light/dark mode automatic.
+Theme: ChatWise palette (blue accent #4E80EE light / #2464EB dark, warm stone sidebar, white content background). Colors resolve dynamically — switching theme repaints every window without relaunch.
+
+### History Window (⌘Y from the menu bar)
+
+Master-detail browser over every completed dictation: searchable session list (transcript preview + relative time + duration), per-session raw/refined transcripts with copy buttons, an audio player for the stored WAV, and delete / Clear All. Storage lives in `~/Library/Application Support/VoiceInput/` (`history.json` + `audio/*.wav`), pruned beyond the configured session limit (default 200). Toggles for saving history and keeping audio live in the window footer; cancelled or empty sessions are never recorded.
 
 ## Liquid Glass Transparency
 
@@ -219,6 +231,11 @@ One Swift Package Module (VoiceInput), no inter-file imports needed:
 - For Translate: ensure Ollama is running (`ollama serve`), pull model with `ollama pull hy-mt2-1.8b-translate:latest`
 - Test buttons in Settings → Providers show errors inline
 
+**Media doesn't pause while dictating:**
+- First use needs an Automation consent prompt (VoiceInput → Spotify/Music) — approve it in System Settings → Privacy & Security → Automation if missed
+- Non-Spotify/Music players are paused via the system play/pause media key, gated on CoreAudio detecting active output — works for most apps that register with Now Playing
+- The General tab toggle must be on
+
 **Vocabulary not helping:**
 - Verify entries are added in Settings → Vocabulary
 - Check Soniox is the active ASR backend (Settings → Providers)
@@ -233,4 +250,4 @@ Follows the contract in SPEC.md (public interface compliance). All main-thread m
 
 ## License
 
-Proprietary—see LICENSE file.
+No license specified yet.

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 /// The floating dictation HUD window.
@@ -32,6 +33,7 @@ final class OverlayPanel {
     private var escGlobalMonitor: Any?
     private var escLocalMonitor: Any?
     private var moveObserver: Any?
+    private var compactObserver: AnyCancellable?
 
     /// Suppresses the didMove observer while `positionPanel` places the window
     /// itself, so only user drags persist a custom origin.
@@ -160,14 +162,42 @@ final class OverlayPanel {
         self.hostingView = hosting
         resizeController.panel = panel
         resizeController.settings = settings
+
+        // Box ↔ capsule toggles swap the panel to the other form's size,
+        // keeping the visual center where the user had it.
+        compactObserver = settings.$voiceBoxCompact
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.adoptContentSizeKeepingCenter() }
+
         return panel
     }
 
-    /// The hosting size: the user's box size plus 40 pt of shadow margin on
-    /// every side. The box fills the canvas minus that margin, so dragging the
-    /// panel edges (via BoxResizeController) resizes the box like a window.
+    /// Re-frames the visible panel to the current form's size around the same
+    /// center point (used when toggling compact mode mid-session).
+    private func adoptContentSizeKeepingCenter() {
+        guard let panel, panel.isVisible else { return }
+        resizeController.cancel()
+        let size = contentSize
+        let old = panel.frame
+        let frame = NSRect(x: old.midX - size.width / 2,
+                           y: old.midY - size.height / 2,
+                           width: size.width, height: size.height)
+        isProgrammaticMove = true
+        panel.setFrame(frame, display: true, animate: false)
+        isProgrammaticMove = false
+    }
+
+    /// The hosting size: the current form's size plus 40 pt of shadow margin
+    /// on every side. The box/capsule fills the canvas minus that margin, so
+    /// dragging the panel edges (via BoxResizeController) resizes it like a
+    /// window.
     private var contentSize: NSSize {
-        NSSize(width: settings.voiceBoxWidth + 80, height: settings.voiceBoxHeight + 80)
+        if settings.voiceBoxCompact {
+            return NSSize(width: settings.capsuleWidth + 80, height: settings.capsuleHeight + 80)
+        }
+        return NSSize(width: settings.voiceBoxWidth + 80, height: settings.voiceBoxHeight + 80)
     }
 
     // MARK: - Positioning
@@ -270,9 +300,18 @@ final class BoxResizeController {
     private var startFrame: NSRect = .zero
     private var startMouse: NSPoint = .zero
 
-    // Panel-space limits = box limits + the 80 pt shadow canvas.
-    private let minSize = NSSize(width: 480 + 80, height: 170 + 80)
-    private let maxSize = NSSize(width: 1400 + 80, height: 640 + 80)
+    // Panel-space limits = content limits + the 80 pt shadow canvas,
+    // depending on which form is showing.
+    private var minSize: NSSize {
+        settings?.voiceBoxCompact == true
+            ? NSSize(width: 220 + 80, height: 40 + 80)
+            : NSSize(width: 480 + 80, height: 170 + 80)
+    }
+    private var maxSize: NSSize {
+        settings?.voiceBoxCompact == true
+            ? NSSize(width: 800 + 80, height: 96 + 80)
+            : NSSize(width: 1400 + 80, height: 640 + 80)
+    }
 
     func begin() {
         guard let panel else { return }
@@ -310,10 +349,15 @@ final class BoxResizeController {
         guard isResizing else { return }
         isResizing = false
         guard let panel, let settings else { return }
-        // Persist box dimensions (minus shadow canvas) and the new origin so
-        // the box reappears exactly as left.
-        settings.voiceBoxWidth = panel.frame.width - 80
-        settings.voiceBoxHeight = panel.frame.height - 80
+        // Persist the current form's dimensions (minus shadow canvas) and the
+        // new origin so it reappears exactly as left.
+        if settings.voiceBoxCompact {
+            settings.capsuleWidth = panel.frame.width - 80
+            settings.capsuleHeight = panel.frame.height - 80
+        } else {
+            settings.voiceBoxWidth = panel.frame.width - 80
+            settings.voiceBoxHeight = panel.frame.height - 80
+        }
         settings.voiceBoxOriginX = panel.frame.origin.x
         settings.voiceBoxOriginY = panel.frame.origin.y
         settings.voiceBoxOriginSaved = true

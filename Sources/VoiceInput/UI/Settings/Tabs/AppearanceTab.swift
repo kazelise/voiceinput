@@ -94,12 +94,16 @@ struct AppearanceTab: View {
                         settings.voiceBoxOriginSaved = false
                         settings.voiceBoxWidth = 680
                         settings.voiceBoxHeight = 200
+                        settings.capsuleWidth = 300
+                        settings.capsuleHeight = 46
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .disabled(!settings.voiceBoxOriginSaved
                               && settings.voiceBoxWidth == 680
-                              && settings.voiceBoxHeight == 200)
+                              && settings.voiceBoxHeight == 200
+                              && settings.capsuleWidth == 300
+                              && settings.capsuleHeight == 46)
                 }
             }
         }

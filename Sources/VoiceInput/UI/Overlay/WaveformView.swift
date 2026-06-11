@@ -20,6 +20,17 @@ private final class WaveformHistory {
         samples.removeFirst()
         samples.append(value)
     }
+
+    /// Adapts the ring to a new bar count when the box is resized: trims the
+    /// oldest samples or pads the past with silence, preserving the recent tail.
+    func resize(to count: Int) {
+        guard count != samples.count, count > 0 else { return }
+        if count < samples.count {
+            samples.removeFirst(samples.count - count)
+        } else {
+            samples.insert(contentsOf: Array(repeating: 0, count: count - samples.count), at: 0)
+        }
+    }
 }
 
 /// A dense, rolling real-time waveform rendered with `Canvas` + `TimelineView`.
@@ -31,22 +42,19 @@ private final class WaveformHistory {
 struct WaveformView: View {
     @ObservedObject var state: AppState
 
-    /// Number of bars in the rolling window.
-    private let barCount: Int
-    /// Bar geometry.
+    /// Bar geometry. The bar count adapts to the width the layout offers, so
+    /// the waveform densifies as the user resizes the box or capsule.
     private let barWidth: CGFloat = 3
     private let barGap: CGFloat = 2.5
-    private let height: CGFloat
+    private let height: CGFloat?
 
-    @State private var history: WaveformHistory
+    @State private var history = WaveformHistory(count: 72)
 
-    /// Defaults are the full-size box waveform; the compact capsule passes a
-    /// smaller bar count and height.
-    init(state: AppState, barCount: Int = 72, height: CGFloat = 34) {
+    /// Pass `height: nil` to fill whatever vertical space the parent offers
+    /// (used by the compact capsule).
+    init(state: AppState, height: CGFloat? = 34) {
         self.state = state
-        self.barCount = barCount
         self.height = height
-        _history = State(initialValue: WaveformHistory(count: barCount))
     }
 
     var body: some View {
@@ -64,6 +72,9 @@ struct WaveformView: View {
     /// Advances the rolling window and paints the bars.
     @MainActor
     private func draw(in context: inout GraphicsContext, size: CGSize, now: TimeInterval) {
+        // Fit as many bars as the current width allows (resize-adaptive).
+        let barCount = max(12, Int((size.width + barGap) / (barWidth + barGap)))
+        history.resize(to: barCount)
         // --- Update the rolling history on the render clock ---
         let live = CGFloat(max(0, min(1, state.audioLevel)))
         // Ease the live level toward its target. Faster attack than release.

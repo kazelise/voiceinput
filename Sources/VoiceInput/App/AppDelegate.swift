@@ -97,10 +97,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
 
-        if let button = item.button {
-            button.image = NSImage(systemSymbolName: "mic", accessibilityDescription: "VoiceInput")
-            button.image?.isTemplate = true
+        updateStatusIcon(for: appState.phase)
+
+        // The icon mirrors the dictation state: quiet template mic when idle,
+        // a tinted filled mic while the voice box is live, a waveform while
+        // the transcript is being refined.
+        appState.$phase
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] phase in self?.updateStatusIcon(for: phase) }
+            .store(in: &cancellables)
+
+        buildStatusMenu(for: item)
+    }
+
+    private func updateStatusIcon(for phase: DictationPhase) {
+        guard let button = statusItem?.button else { return }
+
+        let symbol: String
+        let tint: NSColor?
+        switch phase {
+        case .idle:
+            symbol = "mic"
+            tint = nil
+        case .connecting:
+            symbol = "mic.badge.ellipsis"
+            tint = nil
+        case .listening:
+            symbol = "mic.fill"
+            tint = .systemRed
+        case .finalizing:
+            symbol = "mic.fill"
+            tint = .systemYellow
+        case .refining, .injecting:
+            symbol = "waveform"
+            tint = .controlAccentColor
+        case .error:
+            symbol = "mic.slash"
+            tint = .systemRed
         }
+
+        var image = NSImage(systemSymbolName: symbol, accessibilityDescription: "VoiceInput")
+        if let tint {
+            // Tinted = full-colour image; template = adapts to menu bar.
+            image = image?.withSymbolConfiguration(.init(paletteColors: [tint]))
+            image?.isTemplate = false
+        } else {
+            image?.isTemplate = true
+        }
+        button.image = image
+    }
+
+    private func buildStatusMenu(for item: NSStatusItem) {
 
         let menu = NSMenu()
 

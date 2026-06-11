@@ -90,6 +90,15 @@ struct GlassVoiceBox: View {
         .overlay(specularRim(shape))
         .overlay(errorRim(shape))
         .clipShape(shape)
+        .overlay(alignment: .topTrailing) {
+            IconChipButton(
+                systemName: "arrow.down.right.and.arrow.up.left",
+                help: "Minimize to capsule"
+            ) {
+                settings.voiceBoxCompact = true
+            }
+            .padding(10)
+        }
         .overlay(resizeHandles)
         .modifier(BoxChrome())
     }
@@ -136,13 +145,17 @@ struct GlassVoiceBox: View {
 
     // MARK: - Compact capsule
 
-    /// The minimized form: phase dot + mini waveform + stop + expand, in a
-    /// single glass capsule. The hotkey and Esc keep working as usual.
+    /// The minimized form: phase dot + waveform + stop + expand, in a single
+    /// glass capsule. Fills the (capsule-sized) panel canvas, so the same edge
+    /// handles resize it like the full box. Hotkey and Esc keep working.
     private var compactBody: some View {
         let capsule = Capsule(style: .continuous)
         return HStack(spacing: 12) {
             PhaseDot(phase: state.phase)
-            WaveformView(state: state, barCount: 26, height: 20)
+            WaveformView(state: state, height: nil)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.vertical, 11)
+                .clipped()
             if let countdown = state.silenceCountdown {
                 Text(String(format: "%.1f", max(0, countdown)))
                     .font(.system(size: 10.5, weight: .semibold).monospacedDigit())
@@ -157,11 +170,12 @@ struct GlassVoiceBox: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(glassBackground(capsule))
         .overlay(specularRim(capsule))
         .overlay(errorRim(capsule))
         .clipShape(capsule)
+        .overlay(resizeHandles)
         .modifier(BoxChrome())
     }
 
@@ -258,6 +272,7 @@ struct GlassVoiceBox: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 24, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.trailing, 30) // keep the first line clear of the minimize button
     }
 
     /// The live transcript in a pinned-to-tail scroll view filling whatever
@@ -398,18 +413,11 @@ struct GlassVoiceBox: View {
         }
     }
 
-    // Right cluster: minimize + Stop / Cancel capsules. Deliberately NOT glass —
-    // a second glass level above the content would fog everything beneath it
-    // (see body).
+    // Right cluster: Stop / Cancel capsules (minimize lives at the box's
+    // top-right corner). Deliberately NOT glass — a second glass level above
+    // the content would fog everything beneath it (see body).
     private var actionButtons: some View {
         HStack(spacing: 8) {
-            IconChipButton(
-                systemName: "arrow.down.right.and.arrow.up.left",
-                help: "Minimize to capsule"
-            ) {
-                settings.voiceBoxCompact = true
-            }
-
             GlassActionButton(
                 title: "Stop",
                 badge: hotkeyLabel.label,
