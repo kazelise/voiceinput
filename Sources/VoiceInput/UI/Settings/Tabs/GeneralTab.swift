@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// General settings: master enable toggle and the ASR language hints.
+/// General settings: master enable toggle, language hints, and media auto-pause.
 struct GeneralTab: View {
     @EnvironmentObject private var settings: AppSettings
 
@@ -25,6 +25,15 @@ struct GeneralTab: View {
                         text: $settings.languageHints,
                         monospaced: true
                     )
+                }
+
+                Hairline()
+
+                InlineRow(
+                    title: "Pause media while dictating",
+                    help: "Spotify and Apple Music are paused precisely via AppleScript. All other players (browsers, IINA, NetEase, etc.) are paused via the system Play/Pause key."
+                ) {
+                    BlueToggle(isOn: $settings.mediaAutoPause)
                 }
             }
         }

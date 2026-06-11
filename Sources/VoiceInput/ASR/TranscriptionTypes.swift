@@ -24,6 +24,15 @@ protocol TranscriptionSession: AnyObject {
     /// Re-exposed from the underlying `AudioCapture`; set before calling `start()`.
     var audioLevelHandler: ((Float) -> Void)? { get set }
 
+    // MARK: Captured audio
+
+    /// The session's captured microphone audio as a complete 16 kHz mono WAV,
+    /// or `nil` if nothing was captured. Intended to be read once at session
+    /// end (after `stop`/`cancel` has run, or just before) so dictation history
+    /// can persist the audio. Materialising the WAV is deferred until this is
+    /// read, so callers that don't keep audio pay nothing.
+    var capturedAudioWAV: Data? { get }
+
     // MARK: Lifecycle
 
     /// Attach to microphone and begin recognition. Throws on audio-engine failure.

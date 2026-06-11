@@ -36,6 +36,12 @@ final class DictationController {
     private var isActive: Bool = false
     private var bestTranscript: String = ""
 
+    // History capture (per session)
+    private var sessionStartDate: Date?
+    private var sessionBackend: String = ""
+    /// Materialised once at session end, only when history + keep-audio are on.
+    private var pendingAudioWAV: Data?
+
     // Hands-free silence countdown
     private var silenceTimer: Timer?
     private var lastTranscriptChangeDate: Date?
@@ -88,6 +94,11 @@ final class DictationController {
         bestTranscript = ""
         sessionGeneration &+= 1
         let generation = sessionGeneration
+
+        // Capture session metadata for history.
+        sessionStartDate = Date()
+        sessionBackend = settings.asrBackend.rawValue
+        pendingAudioWAV = nil
 
         Log.app.info("beginSession kind=\(String(describing: kind))")
 
@@ -246,6 +257,10 @@ final class DictationController {
         session = nil
         sessionGeneration &+= 1   // Invalidate any in-flight callbacks.
 
+        // Cancelled sessions are never recorded to history.
+        pendingAudioWAV = nil
+        sessionStartDate = nil
+
         capturedSession?.cancel()
         refiner.cancel()
         overlayPanel.dismiss()
@@ -363,6 +378,15 @@ final class DictationController {
 
     /// Called on main thread after ASR finalization.
     private func finishAfterTranscript(text: String, generation: UInt64, externallyEnded: Bool) {
+        // Materialise the captured audio for history BEFORE clearing `session`.
+        // Only copy the WAV when history + keep-audio are both enabled so the
+        // bytes are never assembled for users who don't keep audio.
+        if AppSettings.shared.historyEnabled && AppSettings.shared.historyKeepAudio {
+            pendingAudioWAV = session?.capturedAudioWAV
+        } else {
+            pendingAudioWAV = nil
+        }
+
         // Mark session as no longer active so endSession/cancelSession are no-ops.
         isActive = false
         session = nil
@@ -370,8 +394,10 @@ final class DictationController {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmed.isEmpty else {
-            // Nothing to inject.
+            // Nothing to inject — and per spec, empty transcripts are never
+            // recorded to history.
             Log.app.info("Empty transcript — dismissing without inject")
+            pendingAudioWAV = nil
             overlayPanel.dismiss()
             mediaController.resumeIfPaused()
             appState.phase = .idle
@@ -391,17 +417,38 @@ final class DictationController {
                 guard let self else { return }
                 guard self.sessionGeneration == generation else { return }
                 // refiner completion is on main thread.
-                let finalText = refined.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                    ? trimmed : refined
-                self.injectAndFinish(text: finalText, generation: generation, externallyEnded: externallyEnded)
+                let refinedTrimmed = refined.trimmingCharacters(in: .whitespacesAndNewlines)
+                let finalText = refinedTrimmed.isEmpty ? trimmed : refined
+                // `refined` for history: the post-refiner text only when
+                // refinement actually changed the raw transcript, else nil.
+                let recordedRefined: String? = (finalText != trimmed) ? finalText : nil
+                self.injectAndFinish(text: finalText,
+                                     raw: trimmed,
+                                     refined: recordedRefined,
+                                     generation: generation,
+                                     externallyEnded: externallyEnded)
             }
         } else {
-            injectAndFinish(text: trimmed, generation: generation, externallyEnded: externallyEnded)
+            injectAndFinish(text: trimmed,
+                            raw: trimmed,
+                            refined: nil,
+                            generation: generation,
+                            externallyEnded: externallyEnded)
         }
     }
 
-    private func injectAndFinish(text: String, generation: UInt64, externallyEnded: Bool) {
+    private func injectAndFinish(text: String,
+                                 raw: String,
+                                 refined: String?,
+                                 generation: UInt64,
+                                 externallyEnded: Bool) {
         appState.phase = .injecting
+
+        // Snapshot history inputs now so they survive the deferred closure.
+        let startDate = sessionStartDate
+        let backend = sessionBackend
+        let audioWAV = pendingAudioWAV
+        pendingAudioWAV = nil
 
         // Brief injecting state for visual feedback, then inject.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
@@ -409,12 +456,26 @@ final class DictationController {
             guard self.sessionGeneration == generation else { return }
 
             self.textInjector.inject(text)
+
+            // Record the completed session to history (after the inject step).
+            // The store gates itself on historyEnabled / historyKeepAudio.
+            let duration = startDate.map { Date().timeIntervalSince($0) } ?? 0
+            HistoryStore.shared.record(
+                raw: raw,
+                refined: refined,
+                durationSeconds: max(0, duration),
+                backend: backend,
+                injected: true,
+                audioWAV: audioWAV
+            )
+
             self.overlayPanel.dismiss()
             self.mediaController.resumeIfPaused()
             self.appState.phase = .idle
             self.appState.transcript = TranscriptSnapshot()
             self.appState.silenceCountdown = nil
             self.appState.sessionKind = nil
+            self.sessionStartDate = nil
 
             if externallyEnded {
                 self.onSessionEndedExternally?()

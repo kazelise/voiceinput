@@ -57,6 +57,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Force accessory policy (no Dock icon).
         NSApp.setActivationPolicy(.accessory)
 
+        // Apply the saved appearance preference before any windows exist so the
+        // very first window (settings/history/overlay) inherits the right look.
+        AppearanceManager.shared.start()
+
         buildStatusItem()
         requestPermissionsOnLaunch()
         wireKeyMonitor()
@@ -128,6 +132,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        // History…
+        let historyItem = NSMenuItem(
+            title: "History\u{2026}",
+            action: #selector(openHistory),
+            keyEquivalent: "y"
+        )
+        historyItem.target = self
+        menu.addItem(historyItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // Quit
@@ -147,6 +160,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         SettingsWindowController.shared.show()
+    }
+
+    @objc private func openHistory() {
+        HistoryWindowController.shared.show()
     }
 
     // MARK: - Permissions on launch

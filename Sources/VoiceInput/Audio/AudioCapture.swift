@@ -19,7 +19,24 @@ final class AudioCapture {
     // MARK: - Public state
 
     /// Running WAV file (16 kHz mono pcm_s16le with RIFF header). Thread-safe read.
-    private(set) var sessionWAV: Data = AudioCapture.emptyWAV()
+    ///
+    /// The RIFF header is assembled lazily on read from the accumulated raw
+    /// samples, so the hot capture path never rebuilds the whole file per chunk.
+    var sessionWAV: Data {
+        wavLock.lock(); defer { wavLock.unlock() }
+        return AudioCapture.buildWAV(samples: wavSamples)
+    }
+
+    /// The captured session audio as a complete WAV, or `nil` when no samples
+    /// were captured. Same bytes as `sessionWAV`, but `nil`-typed so callers
+    /// (e.g. history) can pass it straight through and only materialise the copy
+    /// when they actually need it. Reading this builds the WAV; only call it
+    /// once, at session end, when the audio is actually wanted.
+    var capturedAudioWAV: Data? {
+        wavLock.lock(); defer { wavLock.unlock() }
+        guard !wavSamples.isEmpty else { return nil }
+        return AudioCapture.buildWAV(samples: wavSamples)
+    }
 
     // MARK: - Private constants
 
@@ -28,6 +45,11 @@ final class AudioCapture {
 
     /// Chunk size in output samples (~100 ms at 16 kHz = 1600 samples).
     private static let chunkSamples: Int = 1_600
+
+    /// Hard cap on accumulated WAV sample bytes: ~10 minutes of 16 kHz mono
+    /// Int16 audio (16000 samples/s × 2 bytes × 600 s ≈ 19.2 MB). Audio beyond
+    /// this point is dropped (with a one-time log) to bound memory.
+    private static let maxWAVSampleBytes: Int = 16_000 * 2 * 600
 
     // MARK: - Private state
 
@@ -43,6 +65,10 @@ final class AudioCapture {
 
     /// Internal WAV sample buffer (at 16 kHz Int16) before finalizing the header.
     private var wavSamples = Data()
+
+    /// True once the WAV accumulation cap has been hit and a drop was logged,
+    /// so the overflow warning fires exactly once per session.
+    private var wavCapReached = false
 
     // MARK: - Lifecycle
 
@@ -72,7 +98,7 @@ final class AudioCapture {
         sampleAccumulator = Data()
         wavLock.lock()
         wavSamples = Data()
-        sessionWAV = AudioCapture.emptyWAV()
+        wavCapReached = false
         wavLock.unlock()
 
         // Buffer size: ~100 ms worth of hardware-rate samples.
@@ -156,10 +182,23 @@ final class AudioCapture {
             count: frameLen * MemoryLayout<Int16>.size
         )
 
-        // ── Append to running WAV ────────────────────────────────────────────
+        // ── Append to running WAV (bounded at ~10 min) ───────────────────────
         wavLock.lock()
-        wavSamples.append(rawBytes)
-        sessionWAV = AudioCapture.buildWAV(samples: wavSamples)
+        if wavSamples.count < AudioCapture.maxWAVSampleBytes {
+            let remaining = AudioCapture.maxWAVSampleBytes - wavSamples.count
+            if rawBytes.count <= remaining {
+                wavSamples.append(rawBytes)
+            } else {
+                wavSamples.append(rawBytes.prefix(remaining))
+                if !wavCapReached {
+                    wavCapReached = true
+                    Log.audio.warning("AudioCapture: WAV accumulation hit 10-minute cap; further audio dropped from history")
+                }
+            }
+        } else if !wavCapReached {
+            wavCapReached = true
+            Log.audio.warning("AudioCapture: WAV accumulation hit 10-minute cap; further audio dropped from history")
+        }
         wavLock.unlock()
 
         // ── Accumulate → emit ~100 ms chunks ────────────────────────────────

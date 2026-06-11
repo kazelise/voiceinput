@@ -1,15 +1,35 @@
 import SwiftUI
 
-/// Appearance settings: the voice box's transparency and vertical screen
-/// position, with a live miniature preview and a button to flash the real
-/// overlay on screen.
+/// Appearance settings: colour-scheme override, voice-box transparency, and
+/// vertical screen position, with a live miniature preview and a button to
+/// flash the real overlay on screen.
 struct AppearanceTab: View {
     @EnvironmentObject private var settings: AppSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            themeCard
             previewCard
             controlsCard
+        }
+    }
+
+    // MARK: Theme picker
+
+    private var themeCard: some View {
+        Card {
+            FieldRow(
+                title: "Theme",
+                help: "Override the system light/dark appearance for this app."
+            ) {
+                Picker("", selection: $settings.appearancePreference) {
+                    Text("System").tag("system")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
         }
     }
 
@@ -96,7 +116,7 @@ private struct MiniVoiceBoxPreview: View {
         ZStack {
             // A faux "wallpaper" so transparency reads at a glance.
             LinearGradient(
-                colors: [Theme.accent.opacity(0.35), Color.purple.opacity(0.30)],
+                colors: [Theme.accent.opacity(0.35), Theme.accent.opacity(0.18)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )

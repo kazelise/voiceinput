@@ -27,6 +27,9 @@ final class SonioxRealtimeSession: TranscriptionSession {
         didSet { capture.onLevel = audioLevelHandler }
     }
 
+    /// Captured session audio as a WAV (materialised lazily on read).
+    var capturedAudioWAV: Data? { capture.capturedAudioWAV }
+
     // MARK: - Private constants
 
     private static let websocketURL = URL(string: "wss://stt-rt.soniox.com/transcribe-websocket")!

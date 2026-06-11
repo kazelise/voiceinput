@@ -21,6 +21,9 @@ final class HTTPTranscriptionSession: TranscriptionSession {
         didSet { capture.onLevel = audioLevelHandler }
     }
 
+    /// Captured session audio as a WAV (materialised lazily on read).
+    var capturedAudioWAV: Data? { capture.capturedAudioWAV }
+
     // MARK: - Private state
 
     private let settings: AppSettings
