@@ -61,7 +61,7 @@ struct AppearanceTab: View {
 
             FieldRow(
                 title: "Vertical position",
-                help: "Distance from the bottom of the screen."
+                help: "Distance from the bottom of the screen. Dragging the box anywhere overrides this until you reset."
             ) {
                 HStack(spacing: 12) {
                     Slider(value: $settings.voiceBoxVerticalPosition, in: 0.30...0.90)
@@ -70,6 +70,13 @@ struct AppearanceTab: View {
                         .font(.system(size: 13, design: .monospaced))
                         .foregroundStyle(Theme.textPrimary)
                         .frame(width: 48, alignment: .trailing)
+                    Button("Reset position") {
+                        settings.voiceBoxOriginX = -1
+                        settings.voiceBoxOriginY = -1
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(settings.voiceBoxOriginX < 0)
                 }
             }
         }

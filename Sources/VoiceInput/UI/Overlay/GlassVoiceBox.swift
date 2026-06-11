@@ -71,8 +71,14 @@ struct GlassVoiceBox: View {
         .overlay(specularRim)
         .overlay(errorRim)
         .clipShape(shape)
-        .shadow(color: .black.opacity(0.28), radius: 28, x: 0, y: 16)
-        .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2)
+        // Whisper of a shadow — just enough lift to separate from the backdrop.
+        // Anything heavier makes the apps behind the glass look murky.
+        .shadow(color: .black.opacity(0.10), radius: 12, x: 0, y: 5)
+        .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+        // Drag anywhere on the box to move it; buttons/chips still win clicks
+        // because child gestures take precedence. OverlayPanel persists the
+        // dragged-to origin via NSWindow.didMoveNotification.
+        .gesture(WindowDragGesture())
         .padding(40) // breathing room for the shadow so the panel doesn't clip it
         .animation(.spring(duration: 0.35), value: state.phase)
         .animation(.spring(duration: 0.35), value: state.silenceCountdown != nil)
@@ -270,14 +276,22 @@ struct GlassVoiceBox: View {
             .transition(.scale.combined(with: .opacity))
     }
 
+    // Tapping a chip toggles its feature for this and future sessions.
     private var chips: some View {
         HStack(spacing: 6) {
-            FeatureChip(title: "Polish", active: settings.polishEnabled)
-            FeatureChip(
-                title: "Translate",
-                trailing: settings.translateTarget.shortLabel,
-                active: settings.translateEnabled
-            )
+            Button { settings.polishEnabled.toggle() } label: {
+                FeatureChip(title: "Polish", active: settings.polishEnabled)
+            }
+            .buttonStyle(.plain)
+
+            Button { settings.translateEnabled.toggle() } label: {
+                FeatureChip(
+                    title: "Translate",
+                    trailing: settings.translateTarget.shortLabel,
+                    active: settings.translateEnabled
+                )
+            }
+            .buttonStyle(.plain)
         }
     }
 

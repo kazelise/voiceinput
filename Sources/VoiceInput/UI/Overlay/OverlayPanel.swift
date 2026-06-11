@@ -30,6 +30,11 @@ final class OverlayPanel {
 
     private var escGlobalMonitor: Any?
     private var escLocalMonitor: Any?
+    private var moveObserver: Any?
+
+    /// Suppresses the didMove observer while `positionPanel` places the window
+    /// itself, so only user drags persist a custom origin.
+    private var isProgrammaticMove = false
 
     /// Guards against a dismiss animation completion ordering out a panel that
     /// was re-shown in the meantime.
@@ -46,6 +51,7 @@ final class OverlayPanel {
         // for NSEvent monitors created on the main thread, but guard anyway.
         if let m = escGlobalMonitor { NSEvent.removeMonitor(m) }
         if let m = escLocalMonitor { NSEvent.removeMonitor(m) }
+        if let o = moveObserver { NotificationCenter.default.removeObserver(o) }
     }
 
     // MARK: - Public API
@@ -104,7 +110,7 @@ final class OverlayPanel {
             onCancel: { [weak self] in self?.onCancel?() }
         )
 
-        let hosting = NSHostingView(rootView: root)
+        let hosting = FirstMouseHostingView(rootView: root)
         hosting.translatesAutoresizingMaskIntoConstraints = true
         hosting.autoresizingMask = [.width, .height]
 
@@ -127,6 +133,16 @@ final class OverlayPanel {
         hosting.frame = NSRect(origin: .zero, size: contentSize)
         panel.contentView = hosting
 
+        // Persist the origin whenever the user drags the box so it reappears
+        // where they left it (WindowDragGesture in GlassVoiceBox does the move).
+        moveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: panel, queue: .main
+        ) { [weak self] _ in
+            guard let self, let frame = self.panel?.frame, !self.isProgrammaticMove else { return }
+            self.settings.voiceBoxOriginX = frame.origin.x
+            self.settings.voiceBoxOriginY = frame.origin.y
+        }
+
         self.panel = panel
         self.hostingView = hosting
         return panel
@@ -143,9 +159,23 @@ final class OverlayPanel {
     // MARK: - Positioning
 
     private func positionPanel(_ panel: NSPanel) {
+        let size = contentSize
+        isProgrammaticMove = true
+        defer { isProgrammaticMove = false }
+
+        // A dragged-to origin wins, as long as it's still on a connected screen.
+        let savedX = settings.voiceBoxOriginX
+        let savedY = settings.voiceBoxOriginY
+        if savedX >= 0, savedY >= 0 {
+            let saved = NSRect(x: savedX, y: savedY, width: size.width, height: size.height)
+            if NSScreen.screens.contains(where: { $0.visibleFrame.intersects(saved) }) {
+                panel.setFrame(saved, display: true)
+                return
+            }
+        }
+
         let screen = screenContainingMouse()
         let area = screen.visibleFrame
-        let size = contentSize
 
         let x = area.midX - size.width / 2
         // voiceBoxVerticalPosition is a fraction from the bottom; center the box
@@ -205,6 +235,13 @@ final class OverlayPanel {
 private final class NonActivatingPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+}
+
+/// The panel can never become key, so without this the FIRST click on any
+/// control is consumed trying (and failing) to key the window — buttons appear
+/// dead. Accepting first mouse delivers that initial mouseDown to SwiftUI.
+private final class FirstMouseHostingView: NSHostingView<OverlayRootView> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 // MARK: - Presentation model

@@ -80,6 +80,13 @@ final class AppSettings: ObservableObject {
         static let vocabularyJSON               = "vocabularyJSON"
         static let voiceBoxOpacity              = "voiceBoxOpacity"
         static let voiceBoxVerticalPosition     = "voiceBoxVerticalPosition"
+        static let voiceBoxOriginX              = "voiceBoxOriginX"
+        static let voiceBoxOriginY              = "voiceBoxOriginY"
+        static let appearancePreference         = "appearancePreference"
+        static let mediaAutoPause               = "mediaAutoPause"
+        static let historyEnabled               = "historyEnabled"
+        static let historyKeepAudio             = "historyKeepAudio"
+        static let historyMaxSessions           = "historyMaxSessions"
     }
 
     // The default modifier flags value: cmd | opt | ctrl | shift
@@ -121,6 +128,13 @@ final class AppSettings: ObservableObject {
         if d.object(forKey: Key.vocabularyJSON) == nil        { d.set("[]", forKey: Key.vocabularyJSON) }
         if d.object(forKey: Key.voiceBoxOpacity) == nil       { d.set(0.25, forKey: Key.voiceBoxOpacity) }
         if d.object(forKey: Key.voiceBoxVerticalPosition) == nil { d.set(0.62, forKey: Key.voiceBoxVerticalPosition) }
+        if d.object(forKey: Key.voiceBoxOriginX) == nil       { d.set(-1.0, forKey: Key.voiceBoxOriginX) }
+        if d.object(forKey: Key.voiceBoxOriginY) == nil       { d.set(-1.0, forKey: Key.voiceBoxOriginY) }
+        if d.object(forKey: Key.appearancePreference) == nil  { d.set("system", forKey: Key.appearancePreference) }
+        if d.object(forKey: Key.mediaAutoPause) == nil        { d.set(true, forKey: Key.mediaAutoPause) }
+        if d.object(forKey: Key.historyEnabled) == nil        { d.set(true, forKey: Key.historyEnabled) }
+        if d.object(forKey: Key.historyKeepAudio) == nil      { d.set(true, forKey: Key.historyKeepAudio) }
+        if d.object(forKey: Key.historyMaxSessions) == nil    { d.set(200, forKey: Key.historyMaxSessions) }
     }
 
     // MARK: - General
@@ -307,6 +321,67 @@ final class AppSettings: ObservableObject {
         return 0.62
     }() {
         didSet { defaults.set(voiceBoxVerticalPosition, forKey: Key.voiceBoxVerticalPosition) }
+    }
+
+    /// Custom voice-box origin saved after the user drags the panel.
+    /// (-1, -1) means "unset" — fall back to voiceBoxVerticalPosition.
+    @Published var voiceBoxOriginX: Double = {
+        if UserDefaults.standard.object(forKey: Key.voiceBoxOriginX) != nil {
+            return UserDefaults.standard.double(forKey: Key.voiceBoxOriginX)
+        }
+        return -1.0
+    }() {
+        didSet { defaults.set(voiceBoxOriginX, forKey: Key.voiceBoxOriginX) }
+    }
+
+    @Published var voiceBoxOriginY: Double = {
+        if UserDefaults.standard.object(forKey: Key.voiceBoxOriginY) != nil {
+            return UserDefaults.standard.double(forKey: Key.voiceBoxOriginY)
+        }
+        return -1.0
+    }() {
+        didSet { defaults.set(voiceBoxOriginY, forKey: Key.voiceBoxOriginY) }
+    }
+
+    /// "system" | "light" | "dark" — applied to NSApp.appearance at launch and on change.
+    @Published var appearancePreference: String = UserDefaults.standard.string(forKey: Key.appearancePreference) ?? "system" {
+        didSet { defaults.set(appearancePreference, forKey: Key.appearancePreference) }
+    }
+
+    @Published var mediaAutoPause: Bool = {
+        if UserDefaults.standard.object(forKey: Key.mediaAutoPause) != nil {
+            return UserDefaults.standard.bool(forKey: Key.mediaAutoPause)
+        }
+        return true
+    }() {
+        didSet { defaults.set(mediaAutoPause, forKey: Key.mediaAutoPause) }
+    }
+
+    @Published var historyEnabled: Bool = {
+        if UserDefaults.standard.object(forKey: Key.historyEnabled) != nil {
+            return UserDefaults.standard.bool(forKey: Key.historyEnabled)
+        }
+        return true
+    }() {
+        didSet { defaults.set(historyEnabled, forKey: Key.historyEnabled) }
+    }
+
+    @Published var historyKeepAudio: Bool = {
+        if UserDefaults.standard.object(forKey: Key.historyKeepAudio) != nil {
+            return UserDefaults.standard.bool(forKey: Key.historyKeepAudio)
+        }
+        return true
+    }() {
+        didSet { defaults.set(historyKeepAudio, forKey: Key.historyKeepAudio) }
+    }
+
+    @Published var historyMaxSessions: Int = {
+        if UserDefaults.standard.object(forKey: Key.historyMaxSessions) != nil {
+            return UserDefaults.standard.integer(forKey: Key.historyMaxSessions)
+        }
+        return 200
+    }() {
+        didSet { defaults.set(historyMaxSessions, forKey: Key.historyMaxSessions) }
     }
 
     // MARK: - Derived
