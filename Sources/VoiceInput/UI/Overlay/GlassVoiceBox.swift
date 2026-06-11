@@ -57,6 +57,21 @@ struct GlassVoiceBox: View {
     // GlassEffectContainer makes the system composite all glass in one pass
     // ABOVE the sandwiched content, fogging the transcript/waveform/chips.
     var body: some View {
+        Group {
+            if settings.voiceBoxCompact {
+                compactBody
+            } else {
+                expandedBody
+            }
+        }
+        .animation(.spring(duration: 0.35), value: settings.voiceBoxCompact)
+        .animation(.spring(duration: 0.35), value: state.phase)
+        .animation(.spring(duration: 0.35), value: state.silenceCountdown != nil)
+        .animation(.spring(duration: 0.35), value: settings.polishEnabled)
+        .animation(.spring(duration: 0.35), value: settings.translateEnabled)
+    }
+
+    private var expandedBody: some View {
         VStack(alignment: .leading, spacing: 14) {
             transcriptArea
             WaveformView(state: state)
@@ -67,29 +82,48 @@ struct GlassVoiceBox: View {
         .padding(.top, 22)
         .padding(.bottom, 18)
         .frame(width: boxWidth, alignment: .leading)
-        .background(glassBackground)
-        .overlay(specularRim)
-        .overlay(errorRim)
+        .background(glassBackground(shape))
+        .overlay(specularRim(shape))
+        .overlay(errorRim(shape))
         .clipShape(shape)
-        // Whisper of a shadow — just enough lift to separate from the backdrop.
-        // Anything heavier makes the apps behind the glass look murky.
-        .shadow(color: .black.opacity(0.10), radius: 12, x: 0, y: 5)
-        .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
-        // Drag anywhere on the box to move it; buttons/chips still win clicks
-        // because child gestures take precedence. OverlayPanel persists the
-        // dragged-to origin via NSWindow.didMoveNotification.
-        .gesture(WindowDragGesture())
-        .padding(40) // breathing room for the shadow so the panel doesn't clip it
-        .animation(.spring(duration: 0.35), value: state.phase)
-        .animation(.spring(duration: 0.35), value: state.silenceCountdown != nil)
-        .animation(.spring(duration: 0.35), value: settings.polishEnabled)
-        .animation(.spring(duration: 0.35), value: settings.translateEnabled)
+        .modifier(BoxChrome())
+    }
+
+    // MARK: - Compact capsule
+
+    /// The minimized form: phase dot + mini waveform + stop + expand, in a
+    /// single glass capsule. The hotkey and Esc keep working as usual.
+    private var compactBody: some View {
+        let capsule = Capsule(style: .continuous)
+        return HStack(spacing: 12) {
+            PhaseDot(phase: state.phase)
+            WaveformView(state: state, barCount: 26, height: 20)
+            if let countdown = state.silenceCountdown {
+                Text(String(format: "%.1f", max(0, countdown)))
+                    .font(.system(size: 10.5, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(Color.yellow.opacity(0.95))
+            }
+            IconChipButton(systemName: "stop.fill", help: "Stop", action: onStop)
+            IconChipButton(
+                systemName: "arrow.up.left.and.arrow.down.right",
+                help: "Expand"
+            ) {
+                settings.voiceBoxCompact = false
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+        .background(glassBackground(capsule))
+        .overlay(specularRim(capsule))
+        .overlay(errorRim(capsule))
+        .clipShape(capsule)
+        .modifier(BoxChrome())
     }
 
     // MARK: - Glass + scrim background (Approach B)
 
     @ViewBuilder
-    private var glassBackground: some View {
+    private func glassBackground<S: InsettableShape>(_ shape: S) -> some View {
         let opacity = settings.voiceBoxOpacity
         ZStack {
             // System Liquid Glass base — dropped when the user wants a solid
@@ -116,7 +150,7 @@ struct GlassVoiceBox: View {
     /// A 1.5 pt angular-gradient stroke, brightest near the 60° light direction,
     /// plus a hairline inner stroke. Reads as a catch-light on a bevelled edge —
     /// an accent, never a hard outline.
-    private var specularRim: some View {
+    private func specularRim<S: InsettableShape>(_ shape: S) -> some View {
         ZStack {
             shape
                 .strokeBorder(specularGradient, lineWidth: 1.5)
@@ -149,7 +183,7 @@ struct GlassVoiceBox: View {
     /// The error-phase border flash. The red scrim itself lives in
     /// `glassBackground` so it sits behind the error text.
     @ViewBuilder
-    private var errorRim: some View {
+    private func errorRim<S: InsettableShape>(_ shape: S) -> some View {
         if isError {
             shape
                 .strokeBorder(Color.red.opacity(0.7), lineWidth: 1.5)
@@ -174,14 +208,37 @@ struct GlassVoiceBox: View {
                     .foregroundStyle(Theme.textSecondary.opacity(0.8))
                     .lineLimit(1)
             } else {
-                transcriptText
-                    .font(.system(size: 17, weight: .medium))
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .animation(.easeOut(duration: 0.18), value: state.transcript)
+                scrollingTranscript
             }
         }
         .frame(maxWidth: .infinity, minHeight: 24, alignment: .leading)
+    }
+
+    /// The live transcript in a pinned-to-tail scroll view: as new words stream
+    /// in past three lines, the view follows the freshest text automatically.
+    /// The user can still flick upward to re-read; the next update re-pins.
+    private var scrollingTranscript: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                transcriptText
+                    .font(.system(size: 17, weight: .medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 1)
+                    .id("transcriptTail")
+            }
+            .scrollIndicators(.hidden)
+            .defaultScrollAnchor(.bottom)
+            .frame(maxHeight: 70) // ~3 lines at 17 pt; shorter text stays snug
+            .onChange(of: state.transcript) { _, _ in
+                withAnimation(.easeOut(duration: 0.12)) {
+                    proxy.scrollTo("transcriptTail", anchor: .bottom)
+                }
+            }
+            .onAppear {
+                proxy.scrollTo("transcriptTail", anchor: .bottom)
+            }
+        }
     }
 
     /// Final text in primary colour, interim text in secondary at 60 % with a
@@ -295,10 +352,18 @@ struct GlassVoiceBox: View {
         }
     }
 
-    // Right cluster: Stop / Cancel capsules. Deliberately NOT glass — a second
-    // glass level above the content would fog everything beneath it (see body).
+    // Right cluster: minimize + Stop / Cancel capsules. Deliberately NOT glass —
+    // a second glass level above the content would fog everything beneath it
+    // (see body).
     private var actionButtons: some View {
         HStack(spacing: 8) {
+            IconChipButton(
+                systemName: "arrow.down.right.and.arrow.up.left",
+                help: "Minimize to capsule"
+            ) {
+                settings.voiceBoxCompact = true
+            }
+
             GlassActionButton(
                 title: "Stop",
                 badge: hotkeyLabel.label,
@@ -312,6 +377,60 @@ struct GlassVoiceBox: View {
             )
         }
         .fixedSize()
+    }
+}
+
+// MARK: - Shared box chrome
+
+/// Shadow, drag-to-move, and shadow-breathing padding shared by the expanded
+/// box and the compact capsule. A whisper of a shadow — anything heavier makes
+/// the apps behind the glass look murky.
+private struct BoxChrome: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .shadow(color: .black.opacity(0.10), radius: 12, x: 0, y: 5)
+            .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+            // Drag anywhere on the box to move it; buttons/chips still win
+            // clicks because child gestures take precedence. OverlayPanel
+            // persists the dragged-to origin via NSWindow.didMoveNotification.
+            .gesture(WindowDragGesture())
+            .padding(40) // breathing room for the shadow so the panel doesn't clip it
+    }
+}
+
+// MARK: - Icon chip button
+
+/// A small circular icon control (minimize/expand/stop) matching the chip
+/// idiom: quiet by default, brightens on hover.
+private struct IconChipButton: View {
+    let systemName: String
+    let help: String
+    let action: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(
+                    hovering ? Theme.textPrimary : Theme.textSecondary.opacity(0.9)
+                )
+                .frame(width: 24, height: 24)
+                .background(
+                    Circle().fill(
+                        Color.primary.opacity(
+                            (colorScheme == .dark ? 0.10 : 0.06) + (hovering ? 0.05 : 0)
+                        )
+                    )
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
+        .help(help)
     }
 }
 

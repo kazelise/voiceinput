@@ -32,12 +32,22 @@ struct WaveformView: View {
     @ObservedObject var state: AppState
 
     /// Number of bars in the rolling window.
-    private let barCount = 72
+    private let barCount: Int
     /// Bar geometry.
     private let barWidth: CGFloat = 3
     private let barGap: CGFloat = 2.5
+    private let height: CGFloat
 
-    @State private var history = WaveformHistory(count: 72)
+    @State private var history: WaveformHistory
+
+    /// Defaults are the full-size box waveform; the compact capsule passes a
+    /// smaller bar count and height.
+    init(state: AppState, barCount: Int = 72, height: CGFloat = 34) {
+        self.state = state
+        self.barCount = barCount
+        self.height = height
+        _history = State(initialValue: WaveformHistory(count: barCount))
+    }
 
     var body: some View {
         TimelineView(.animation) { timeline in
@@ -47,7 +57,7 @@ struct WaveformView: View {
                      now: timeline.date.timeIntervalSinceReferenceDate)
             }
         }
-        .frame(height: 34)
+        .frame(height: height)
         .accessibilityHidden(true)
     }
 

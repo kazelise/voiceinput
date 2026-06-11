@@ -82,6 +82,7 @@ final class AppSettings: ObservableObject {
         static let voiceBoxVerticalPosition     = "voiceBoxVerticalPosition"
         static let voiceBoxOriginX              = "voiceBoxOriginX"
         static let voiceBoxOriginY              = "voiceBoxOriginY"
+        static let voiceBoxCompact              = "voiceBoxCompact"
         static let appearancePreference         = "appearancePreference"
         static let mediaAutoPause               = "mediaAutoPause"
         static let historyEnabled               = "historyEnabled"
@@ -130,6 +131,7 @@ final class AppSettings: ObservableObject {
         if d.object(forKey: Key.voiceBoxVerticalPosition) == nil { d.set(0.62, forKey: Key.voiceBoxVerticalPosition) }
         if d.object(forKey: Key.voiceBoxOriginX) == nil       { d.set(-1.0, forKey: Key.voiceBoxOriginX) }
         if d.object(forKey: Key.voiceBoxOriginY) == nil       { d.set(-1.0, forKey: Key.voiceBoxOriginY) }
+        if d.object(forKey: Key.voiceBoxCompact) == nil       { d.set(false, forKey: Key.voiceBoxCompact) }
         if d.object(forKey: Key.appearancePreference) == nil  { d.set("system", forKey: Key.appearancePreference) }
         if d.object(forKey: Key.mediaAutoPause) == nil        { d.set(true, forKey: Key.mediaAutoPause) }
         if d.object(forKey: Key.historyEnabled) == nil        { d.set(true, forKey: Key.historyEnabled) }
@@ -341,6 +343,11 @@ final class AppSettings: ObservableObject {
         return -1.0
     }() {
         didSet { defaults.set(voiceBoxOriginY, forKey: Key.voiceBoxOriginY) }
+    }
+
+    /// Whether the voice box is collapsed into its compact capsule form.
+    @Published var voiceBoxCompact: Bool = UserDefaults.standard.bool(forKey: Key.voiceBoxCompact) {
+        didSet { defaults.set(voiceBoxCompact, forKey: Key.voiceBoxCompact) }
     }
 
     /// "system" | "light" | "dark" — applied to NSApp.appearance at launch and on change.
