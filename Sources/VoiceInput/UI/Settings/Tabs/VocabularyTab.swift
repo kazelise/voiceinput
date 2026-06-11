@@ -1,0 +1,137 @@
+import SwiftUI
+
+/// Vocabulary editor: a table of canonical terms and their common mishearings,
+/// inline-editable, with ChatWise +/- controls at the bottom-left. Terms feed
+/// Soniox recognition biasing and the polish prompt's correction list.
+struct VocabularyTab: View {
+    @EnvironmentObject private var vocabulary: VocabularyStore
+
+    @State private var selectedID: VocabularyEntry.ID?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Card(padding: 18) {
+                CardHeading(
+                    title: "Custom vocabulary",
+                    subtitle: "Terms sent to Soniox for recognition biasing and used by polish to fix mishearings — e.g. ‘cloud code’ → ‘Claude Code’."
+                )
+
+                table
+
+                ListControlBar(
+                    canRemove: selectedID != nil,
+                    onAdd: addEntry,
+                    onRemove: removeSelected
+                )
+            }
+        }
+    }
+
+    // MARK: Table
+
+    private var table: some View {
+        VStack(spacing: 0) {
+            headerRow
+            Hairline()
+            if vocabulary.entries.isEmpty {
+                emptyState
+            } else {
+                ForEach(Array(vocabulary.entries.enumerated()), id: \.element.id) { index, entry in
+                    entryRow(index: index, entry: entry)
+                    if index < vocabulary.entries.count - 1 {
+                        Hairline()
+                    }
+                }
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Theme.fieldFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Theme.hairline, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var headerRow: some View {
+        HStack(spacing: 0) {
+            Text("Term")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Common mishearings")
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(Theme.textSecondary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private var emptyState: some View {
+        Text("No terms yet. Click + to add a term the recognizer should learn.")
+            .font(.system(size: 12))
+            .foregroundStyle(Theme.textSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 16)
+    }
+
+    private func entryRow(index: Int, entry: VocabularyEntry) -> some View {
+        let isSelected = selectedID == entry.id
+        return HStack(spacing: 12) {
+            cellField(
+                placeholder: "Claude Code",
+                value: Binding(
+                    get: { entry.term },
+                    set: { newValue in setField(index: index) { $0.term = newValue } }
+                )
+            )
+            cellField(
+                placeholder: "cloud code, clot code",
+                value: Binding(
+                    get: { entry.hints },
+                    set: { newValue in setField(index: index) { $0.hints = newValue } }
+                )
+            )
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(isSelected ? Theme.accent.opacity(0.10) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture { selectedID = entry.id }
+    }
+
+    private func cellField(placeholder: String, value: Binding<String>) -> some View {
+        TextField(placeholder, text: value)
+            .textFieldStyle(.plain)
+            .font(.system(size: 13))
+            .foregroundStyle(Theme.textPrimary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: Mutations
+
+    /// Mutate a copy of the entry at `index` and push it back through
+    /// `VocabularyStore.update`, which persists to settings.
+    private func setField(index: Int, _ assign: (inout VocabularyEntry) -> Void) {
+        guard vocabulary.entries.indices.contains(index) else { return }
+        var entry = vocabulary.entries[index]
+        assign(&entry)
+        vocabulary.update(entry)
+    }
+
+    private func addEntry() {
+        let entry = VocabularyEntry(term: "", hints: "")
+        vocabulary.add(entry)
+        selectedID = entry.id
+    }
+
+    private func removeSelected() {
+        guard let selectedID,
+              let index = vocabulary.entries.firstIndex(where: { $0.id == selectedID })
+        else { return }
+        vocabulary.remove(at: IndexSet(integer: index))
+        self.selectedID = nil
+    }
+}

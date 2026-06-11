@@ -67,7 +67,9 @@ Build: SPM executable, `platforms: [.macOS("26.0")]`, swift-tools-version 6.0+, 
 // MARK: Core/AppSettings.swift  (G1)
 enum ASRBackend: String, CaseIterable { case sonioxRealtime, openAICompatible }
 enum TranslateTarget: String, CaseIterable { case english, chineseSimplified, chineseTraditional, korean }
-// displayName: String on both enums.
+// var displayName: String on BOTH enums (e.g. "Soniox Realtime"/"OpenAI-compatible";
+//   "English"/"简体中文"/"繁體中文"/"한국어").
+// var shortLabel: String on TranslateTarget only — for the overlay chip: "EN"/"简"/"繁"/"KO".
 
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -106,6 +108,8 @@ final class AppSettings: ObservableObject {
     @Published var voiceBoxOpacity: Double          // "voiceBoxOpacity" (0.25)  0 = pure glass, 1 = solid
     @Published var voiceBoxVerticalPosition: Double // "voiceBoxVerticalPosition" (0.62) fraction from screen bottom
     var languageHintsArray: [String] { get }        // parsed, trimmed, lowercased, non-empty
+    var hotkeyShortcut: HotkeyShortcut { get }       // built from customHotkeyKeyCode/ModifierFlags/KeyEquivalent
+    var hotkeyDisplayName: String { get }            // hotkeyKey == .customShortcut ? hotkeyShortcut.displayString : hotkeyKey.displayName
 }
 
 // MARK: Core/VocabularyStore.swift  (G1)
@@ -187,6 +191,10 @@ enum TranscriptionFactory {
 // Records via AudioCapture only; on stop(): POST multipart {file: session.wav, model, response_format=json,
 // language: first languageHint if exactly one} to httpASRBaseURL + "/audio/transcriptions",
 // Bearer httpASRAPIKey. Parse {"text": ...}. onTranscript fires once at end. 60 s request timeout.
+// NOTE: this backend streams nothing during recording — no onTranscript/onUtteranceEnd until stop().
+// Consequence (handled by DictationController, see Orchestration): hands-free silence auto-stop is
+// IMPOSSIBLE on this backend; for a hands-free session on the HTTP backend the controller must NOT
+// arm the silence countdown (leave AppState.silenceCountdown == nil) and end only on a user hotkey tap.
 
 // MARK: Refine/Refiner.swift  (G6)
 final class Refiner {
@@ -216,7 +224,8 @@ final class Refiner {
 // Parse choices[0].message.content (ignore .reasoning). Strip wrapping quotes/whitespace.
 
 // MARK: System/*  (G3) — direct ports from old app (read its source!), same public surface:
-enum HotkeyKey: String, CaseIterable { case fn, rightCommand, rightOption, rightShift, rightControl, customShortcut }
+enum HotkeyKey: String, CaseIterable { case fn, rightCommand, rightOption, rightShift, rightControl, customShortcut
+                                       var displayName: String { get } }  // "Fn", "Right ⌘", …, "Custom Shortcut"
 struct HotkeyShortcut: Equatable { var keyCode: UInt16; var modifierFlags: NSEvent.ModifierFlags; var keyEquivalent: String
                                    var displayString: String { get } }
 final class KeyMonitor {
@@ -224,6 +233,14 @@ final class KeyMonitor {
     func configure(key: HotkeyKey, customShortcut: HotkeyShortcut?,
                    tapHoldThresholdMs: Int, doublePressWindowMs: Int, holdForgiveMs: Int)
     func start(); func stop()
+    // Tear down internal state-machine WITHOUT firing onStop. The controller MUST call one of
+    // these after it ends a session by any path other than a user hotkey tap (hands-free silence
+    // auto-stop, overlay Stop button, Esc cancel) — otherwise KeyMonitor still believes a session
+    // is active and the next tap is misread as "stop" instead of "start".
+    func externalStop()   // call after a hands-free auto-stop / overlay Stop that ended a live session;
+                          // MUST be a safe no-op when the state machine is already idle (e.g. the session
+                          // was ended by a user hotkey tap, which already reset KeyMonitor internally)
+    func reset()          // call on cancel / Enabled-off; unconditional full state reset, no callbacks
 }
 final class TextInjector { func inject(_ text: String) }   // clipboard + IME-aware Cmd-V (old algorithm verbatim)
 final class MediaController { func pauseIfPlaying(); func resumeIfPaused() }
@@ -275,9 +292,9 @@ GlassVoiceBox (SwiftUI):
 - **kube.io-inspired rim**: 1.5 pt stroke of the shape with an AngularGradient brightest near the 60° light direction (white 0.5 → 0.05 opacity), plus a second inner hairline (white 0.12). Subtle — accent, not outline.
 - Layout (top→bottom): live transcript area (min 1, max 3 lines, 17 pt medium, finalText in primary color + interimText in secondary 60% opacity with a soft shimmer/fade-in; placeholder "Listening…" / "连接中…" per phase, secondary color, when empty) → waveform (centered, full width, height 34) → bottom bar.
 - Waveform (WaveformView): SwiftUI `Canvas` + TimelineView, ~72 rolling bars, 3 pt wide / 2.5 pt gap, rounded caps, symmetric about centerline, colored `Theme.accent` gradient at 0.9 opacity, driven by `state.audioLevel` history; gentle idle breathing when level ≈ 0.
-- Bottom bar: left = phase indicator (8 pt dot: accent pulsing while listening, yellow finalizing, purple refining + label "Listening / Finalizing / Polishing / Translating…") + hands-free countdown pill ("2.5s") when `silenceCountdown != nil` + chips "Polish" / "Translate EN|简|繁|KO" (small gray pills, accent-tinted when enabled). Right = "Stop ⏎-style hotkey badge" and "Cancel esc" — text buttons with `.glassEffect(.regular.interactive(), in: .capsule)` so the buttons are tiny glass elements within the container (use `glassEffectID` so show/hide morphs).
+- Bottom bar: left = phase indicator (8 pt dot: accent pulsing while listening, yellow finalizing, purple refining) + label derived solely from `state.phase`: `.connecting`→"Connecting…", `.listening`→"Listening", `.finalizing`→"Finalizing", `.refining`→"Refining" (there is no polish-vs-translate sub-phase in AppState — do NOT invent one; "Refining" covers both steps) + hands-free countdown pill ("2.5s") when `silenceCountdown != nil` + chips "Polish" / "Translate EN|简|繁|KO" (small gray pills, accent-tinted when `settings.polishEnabled` / `settings.translateEnabled`; chip language label from `settings.translateTarget.shortLabel`). Right = "Stop ⏎-style hotkey badge" and "Cancel esc" — text buttons with `.glassEffect(.regular.interactive(), in: .capsule)` so the buttons are tiny glass elements within the container (use `glassEffectID` so show/hide morphs). The "Stop" hotkey badge text comes from `OverlayPanel.updateHotkeyLabel(_:)` (AppDelegate-supplied), NOT from settings directly.
 - Phase transitions animate with `.spring(duration: 0.35)`; panel show/dismiss: scale 0.97→1 + fade, 0.25 s.
-- Error phase: box border flashes red-tinted scrim, error text in transcript area, auto-dismiss after 2 s.
+- Error phase: box border flashes red-tinted scrim, error text in transcript area. The OverlayPanel only RENDERS `state.phase == .error`; the 2 s timer and the actual `dismiss()` + return to `.idle` are owned by DictationController (do not add a competing dismiss timer inside the panel) so media-resume and KeyMonitor reset stay sequenced with the dismissal.
 
 ## Settings window (G5) — ChatWise style
 
@@ -295,7 +312,7 @@ Tabs:
 
 ## Orchestration (G7)
 
-`DictationController` owns: AudioCapture-backed TranscriptionSession (created per session via TranscriptionFactory), Refiner, TextInjector, MediaController, OverlayPanel, and writes AppState. Hands-free: silence countdown driven by Soniox `onUtteranceEnd` + last-transcript-change timestamps checked every 250 ms (countdown into `AppState.silenceCountdown`). Guard re-entrancy: ignore beginSession while active; endSession idempotent. `AppDelegate`: status item + menu, permissions on launch, KeyMonitor wiring + re-wire on settings change (Combine, debounced 300 ms), preview-overlay notification listener, settings window. main.swift: NSApplication boot, `.accessory` policy.
+`DictationController` owns: AudioCapture-backed TranscriptionSession (created per session via TranscriptionFactory), Refiner, TextInjector, MediaController, OverlayPanel, and writes AppState. Public surface used by AppDelegate: `func beginSession(kind: SessionKind)`, `func endSession()` (graceful stop + refine + inject), `func cancelSession()` (Esc/overlay Cancel — discard, no inject), `func showPreviewOverlay()` (ignored while a real session is active; otherwise drives AppState through a sample `.listening` transcript and auto-dismisses after 4 s — used by the Appearance tab's preview button via the notification below), `func updateHotkeyLabel(_ display: String)` (forwards to its OverlayPanel — AppDelegate calls THIS, never the panel directly, since the controller owns the panel). Wire `OverlayPanel.onStop → endSession()`, `OverlayPanel.onCancel → cancelSession()`. Hands-free: silence countdown driven by Soniox `onUtteranceEnd` + last-transcript-change timestamps checked every 250 ms (countdown into `AppState.silenceCountdown`); when it elapses the controller ends the session itself. The silence countdown is armed ONLY when the active session is hands-free AND the backend streams incrementally (Soniox realtime); on the HTTP ASR backend hands-free cannot auto-stop, so leave `silenceCountdown` nil and rely on a hotkey tap to end. Because endSession/cancelSession can fire without a user hotkey tap, the controller MUST notify the KeyMonitor so its state machine doesn't go stale: give `DictationController` an `var onSessionEndedExternally: (() -> Void)?` and `var onSessionCancelled: (() -> Void)?` that AppDelegate wires to `keyMonitor.externalStop()` / `keyMonitor.reset()` respectively (the controller does not own KeyMonitor). Guard re-entrancy: ignore beginSession while active; endSession/cancelSession idempotent. `AppDelegate`: status item + menu, permissions on launch, owns + wires KeyMonitor (`onStart → controller.beginSession(kind:)`, `onStop → controller.endSession()`) + re-wire on settings change (Combine, debounced 300 ms), calls `controller.updateHotkeyLabel(settings.hotkeyDisplayName)` on launch and on hotkey-settings change, preview-overlay notification listener (on `Notification.Name("VoiceInputPreviewOverlay")` → `controller.showPreviewOverlay()`; the controller owns OverlayPanel, AppDelegate does not), settings window. main.swift: NSApplication boot, `.accessory` policy.
 
 `scripts/seed-keys.sh`: reads `.env.local`, `defaults write com.zhijie.VoiceInput sonioxAPIKey/polishAPIKey ...`, prints confirmation. Never store keys in source or git.
 
