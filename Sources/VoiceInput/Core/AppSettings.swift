@@ -24,6 +24,21 @@ enum ASRBackend: String, CaseIterable {
     }
 }
 
+// MARK: - VoiceProvider
+
+/// Which vendor performs speech recognition. Both support realtime AND batch.
+enum VoiceProvider: String, CaseIterable {
+    case soniox
+    case openai
+
+    var displayName: String {
+        switch self {
+        case .soniox: return "Soniox"
+        case .openai: return "OpenAI"
+        }
+    }
+}
+
 // MARK: - TranslateTarget
 
 enum TranslateTarget: String, CaseIterable {
@@ -71,6 +86,9 @@ final class AppSettings: ObservableObject {
         static let holdForgiveMs                = "holdForgiveMs"
         static let silenceDurationMs            = "silenceDurationMs"
         static let asrBackend                   = "asrBackend"
+        static let voiceProvider                = "voiceProvider"
+        static let sonioxAsyncModel             = "sonioxAsyncModel"
+        static let openAIRealtimeModel          = "openAIRealtimeModel"
         static let sonioxAPIKey                 = "sonioxAPIKey"
         static let sonioxModel                  = "sonioxModel"
         static let httpASRBaseURL               = "httpASRBaseURL"
@@ -126,6 +144,25 @@ final class AppSettings: ObservableObject {
         if d.object(forKey: Key.holdForgiveMs) == nil         { d.set(300, forKey: Key.holdForgiveMs) }
         if d.object(forKey: Key.silenceDurationMs) == nil     { d.set(2500, forKey: Key.silenceDurationMs) }
         if d.object(forKey: Key.asrBackend) == nil            { d.set(ASRBackend.sonioxRealtime.rawValue, forKey: Key.asrBackend) }
+        if d.object(forKey: Key.voiceProvider) == nil {
+            d.set(VoiceProvider.soniox.rawValue, forKey: Key.voiceProvider)
+            // One-time migration from the URL-sniffing era: Soniox config that
+            // lived in the OpenAI-compatible fields moves to its own keys.
+            let oldURL = d.string(forKey: Key.httpASRBaseURL) ?? ""
+            if oldURL.lowercased().contains("soniox") {
+                let oldModel = d.string(forKey: Key.httpASRModel) ?? ""
+                if oldModel.lowercased().hasPrefix("stt-") {
+                    d.set(oldModel, forKey: Key.sonioxAsyncModel)
+                }
+                d.set("https://api.openai.com/v1", forKey: Key.httpASRBaseURL)
+                d.set("gpt-4o-mini-transcribe", forKey: Key.httpASRModel)
+                if d.string(forKey: Key.httpASRAPIKey) == d.string(forKey: Key.sonioxAPIKey) {
+                    d.set("", forKey: Key.httpASRAPIKey)
+                }
+            }
+        }
+        if d.object(forKey: Key.sonioxAsyncModel) == nil      { d.set("stt-async-v5", forKey: Key.sonioxAsyncModel) }
+        if d.object(forKey: Key.openAIRealtimeModel) == nil   { d.set("gpt-4o-mini-transcribe", forKey: Key.openAIRealtimeModel) }
         if d.object(forKey: Key.sonioxAPIKey) == nil          { d.set("", forKey: Key.sonioxAPIKey) }
         if d.object(forKey: Key.sonioxModel) == nil           { d.set("stt-rt-v4", forKey: Key.sonioxModel) }
         if d.object(forKey: Key.httpASRBaseURL) == nil        { d.set("https://api.openai.com/v1", forKey: Key.httpASRBaseURL) }
@@ -375,6 +412,23 @@ final class AppSettings: ObservableObject {
         return -1.0
     }() {
         didSet { defaults.set(voiceBoxOriginY, forKey: Key.voiceBoxOriginY) }
+    }
+
+    /// Which vendor performs speech recognition (each supports both modes).
+    @Published var voiceProvider: VoiceProvider = VoiceProvider(
+        rawValue: UserDefaults.standard.string(forKey: Key.voiceProvider) ?? ""
+    ) ?? .soniox {
+        didSet { defaults.set(voiceProvider.rawValue, forKey: Key.voiceProvider) }
+    }
+
+    /// Soniox batch model for "Just transcribe" mode.
+    @Published var sonioxAsyncModel: String = UserDefaults.standard.string(forKey: Key.sonioxAsyncModel) ?? "stt-async-v5" {
+        didSet { defaults.set(sonioxAsyncModel, forKey: Key.sonioxAsyncModel) }
+    }
+
+    /// OpenAI realtime transcription model (wss intent=transcription session).
+    @Published var openAIRealtimeModel: String = UserDefaults.standard.string(forKey: Key.openAIRealtimeModel) ?? "gpt-4o-mini-transcribe" {
+        didSet { defaults.set(openAIRealtimeModel, forKey: Key.openAIRealtimeModel) }
     }
 
     /// Reasoning effort sent with polish requests: "off" | "low" | "medium" | "high".

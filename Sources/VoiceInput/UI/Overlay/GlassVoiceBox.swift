@@ -397,9 +397,10 @@ struct GlassVoiceBox: View {
             .transition(.scale.combined(with: .opacity))
     }
 
-    // Tapping a chip toggles its feature for this and future sessions.
-    // The mode chip flips Realtime ↔ Just transcribe; it takes effect on the
-    // NEXT session (the engine for a live session is already running).
+    // Tapping a chip toggles its feature. The mode chip flips Realtime ↔
+    // Just transcribe and applies IMMEDIATELY — DictationController hot-swaps
+    // the live engine, carrying the transcript so far. Right-click Translate
+    // to pick the target language.
     private var chips: some View {
         HStack(spacing: 6) {
             Button {
@@ -412,7 +413,7 @@ struct GlassVoiceBox: View {
                 )
             }
             .buttonStyle(.plain)
-            .help("Voice mode for the next session: Realtime streams live words; Transcribe uploads once at stop.")
+            .help("Switch voice mode now: Realtime streams live words; Transcribe uploads once at stop. Applies immediately.")
 
             Button { settings.polishEnabled.toggle() } label: {
                 FeatureChip(title: "Polish", active: settings.polishEnabled)
@@ -427,6 +428,21 @@ struct GlassVoiceBox: View {
                 )
             }
             .buttonStyle(.plain)
+            .help("Click to toggle. Right-click to choose the target language.")
+            .contextMenu {
+                ForEach(TranslateTarget.allCases, id: \.self) { target in
+                    Button {
+                        settings.translateTarget = target
+                        settings.translateEnabled = true
+                    } label: {
+                        if target == settings.translateTarget {
+                            Label(target.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(target.displayName)
+                        }
+                    }
+                }
+            }
         }
     }
 

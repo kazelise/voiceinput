@@ -36,6 +36,14 @@ final class DictationController {
     private var isActive: Bool = false
     private var bestTranscript: String = ""
 
+    /// Text carried across mid-session engine hot-swaps (mode/provider chip).
+    /// Displayed transcript = join(carriedText, current engine's snapshot).
+    private var carriedText: String = ""
+    /// The current engine's own (session-local) latest snapshot.
+    private var engineSnapshot = TranscriptSnapshot()
+
+    private var cancellables = Set<AnyCancellable>()
+
     // History capture (per session)
     private var sessionStartDate: Date?
     private var sessionBackend: String = ""
@@ -71,6 +79,22 @@ final class DictationController {
         overlayPanel.onCancel = { [weak self] in
             self?.cancelSession()
         }
+
+        // Mode/provider changes apply IMMEDIATELY to a live session: the
+        // running engine is retired (keeping its text) and the new one takes
+        // over the microphone.
+        settings.$asrBackend
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.hotSwapEngine() }
+            .store(in: &cancellables)
+        settings.$voiceProvider
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.hotSwapEngine() }
+            .store(in: &cancellables)
     }
 
     // MARK: - Public API
@@ -92,12 +116,14 @@ final class DictationController {
         previewTimer?.invalidate()
         previewTimer = nil
         bestTranscript = ""
+        carriedText = ""
+        engineSnapshot = TranscriptSnapshot()
         sessionGeneration &+= 1
         let generation = sessionGeneration
 
         // Capture session metadata for history.
         sessionStartDate = Date()
-        sessionBackend = settings.asrBackend.rawValue
+        sessionBackend = "\(settings.voiceProvider.rawValue)/\(settings.asrBackend.rawValue)"
         pendingAudioWAV = nil
 
         Log.app.info("beginSession kind=\(String(describing: kind))")
@@ -117,7 +143,13 @@ final class DictationController {
 
         overlayPanel.show()
 
-        // Create ASR session.
+        startEngine(kind: kind, generation: generation)
+    }
+
+    /// Creates the ASR engine from the CURRENT settings, wires its callbacks
+    /// (merging `carriedText` from earlier engines of this session), and
+    /// starts it. Used by `beginSession` and by mid-session hot-swaps.
+    private func startEngine(kind: SessionKind, generation: UInt64) {
         let vocabulary = VocabularyStore.shared
         let asrSession = TranscriptionFactory.make(settings: settings, vocabulary: vocabulary)
         session = asrSession
@@ -133,15 +165,21 @@ final class DictationController {
             guard self.sessionGeneration == generation else { return }
             // Already on main (per contract).
             let wasEmpty = self.appState.transcript.isEmpty
-            self.appState.transcript = snapshot
-            self.bestTranscript = snapshot.combined
+            self.engineSnapshot = snapshot
+            let merged = TranscriptSnapshot(
+                finalText: Self.joinTranscripts(self.carriedText, snapshot.finalText),
+                interimText: snapshot.interimText
+            )
+            self.appState.transcript = merged
+            self.bestTranscript = merged.combined
 
             // Track last change timestamp for silence countdown.
             if !snapshot.combined.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 self.lastTranscriptChangeDate = Date()
             }
 
-            // Arm silence countdown only for hands-free + Soniox (incremental) backend.
+            // Arm silence countdown only for hands-free + realtime mode
+            // (batch backends produce no incremental tokens).
             if kind == .handsFree &&
                self.settings.asrBackend == .sonioxRealtime &&
                (wasEmpty || self.silenceTimer == nil) {
@@ -238,9 +276,78 @@ final class DictationController {
             guard let self else { return }
             guard self.sessionGeneration == generation else { return }
             // stop(completion:) delivers on main thread per contract.
-            let text = finalText.isEmpty ? self.bestTranscript : finalText
+            // Engines report session-local text; prepend anything carried
+            // across mid-session hot-swaps.
+            let merged = Self.joinTranscripts(self.carriedText, finalText)
+            let text = merged.isEmpty ? self.bestTranscript : merged
             self.finishAfterTranscript(text: text, generation: generation, externallyEnded: true)
         }
+    }
+
+    // MARK: - Mid-session engine hot-swap
+
+    /// Applies a mode/provider change to the LIVE session: the current engine
+    /// is retired, its text is carried forward, and a fresh engine (built from
+    /// the new settings) takes over the microphone immediately.
+    private func hotSwapEngine() {
+        guard isActive, let old = session else { return }
+        switch appState.phase {
+        case .connecting, .listening: break
+        default: return                      // already finalizing/refining
+        }
+        let generation = sessionGeneration
+        guard let kind = appState.sessionKind else { return }
+
+        Log.app.info("hotSwapEngine → \(self.settings.voiceProvider.rawValue)/\(self.settings.asrBackend.rawValue)")
+
+        // Freeze the current engine's contribution.
+        carriedText = Self.joinTranscripts(carriedText, engineSnapshot.combined)
+        engineSnapshot = TranscriptSnapshot()
+        sessionBackend = "\(settings.voiceProvider.rawValue)/\(settings.asrBackend.rawValue)"
+        teardownSilenceTimer()
+
+        let oldIsBatch = old is HTTPTranscriptionSession || old is SonioxAsyncSession
+        if oldIsBatch {
+            // A batch engine has recorded audio but shown nothing — transcribe
+            // it in the background and splice the result in when it lands.
+            old.stop { [weak self] text in
+                guard let self, self.sessionGeneration == generation else { return }
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                self.carriedText = Self.joinTranscripts(trimmed, self.carriedText)
+                let merged = TranscriptSnapshot(
+                    finalText: Self.joinTranscripts(self.carriedText, self.engineSnapshot.finalText),
+                    interimText: self.engineSnapshot.interimText
+                )
+                self.appState.transcript = merged
+                self.bestTranscript = merged.combined
+            }
+        } else {
+            old.cancel()
+        }
+
+        startEngine(kind: kind, generation: generation)
+    }
+
+    /// Joins two transcript fragments, inserting a space only when the
+    /// boundary isn't CJK (Chinese text reads wrong with injected spaces).
+    private static func joinTranscripts(_ a: String, _ b: String) -> String {
+        let left = a.trimmingCharacters(in: .whitespacesAndNewlines)
+        let right = b.trimmingCharacters(in: .whitespacesAndNewlines)
+        if left.isEmpty { return right }
+        if right.isEmpty { return left }
+        func isCJK(_ c: Character) -> Bool {
+            guard let scalar = c.unicodeScalars.first else { return false }
+            switch scalar.value {
+            case 0x3000...0x303F, 0x3400...0x4DBF, 0x4E00...0x9FFF,
+                 0xF900...0xFAFF, 0xFF00...0xFFEF:
+                return true
+            default:
+                return false
+            }
+        }
+        let separator = (isCJK(left.last!) || isCJK(right.first!)) ? "" : " "
+        return left + separator + right
     }
 
     /// Cancel: discard transcript, do not inject.

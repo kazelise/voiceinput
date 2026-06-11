@@ -79,11 +79,9 @@ struct ProvidersTab: View {
     private func isConfigured(_ item: ProviderItem) -> Bool {
         switch item {
         case .voice:
-            switch settings.asrBackend {
-            case .sonioxRealtime:
-                return !settings.sonioxAPIKey.trimmed.isEmpty
-            case .openAICompatible:
-                return !settings.httpASRBaseURL.trimmed.isEmpty && !settings.httpASRModel.trimmed.isEmpty
+            switch settings.voiceProvider {
+            case .soniox: return !settings.sonioxAPIKey.trimmed.isEmpty
+            case .openai: return !settings.httpASRAPIKey.trimmed.isEmpty
             }
         case .polish:
             return !settings.polishBaseURL.trimmed.isEmpty && !settings.polishModel.trimmed.isEmpty
@@ -108,12 +106,25 @@ struct ProvidersTab: View {
             CardHeading(
                 title: "Voice model",
                 subtitle: settings.asrBackend == .sonioxRealtime
-                    ? "Realtime: Soniox WebSocket streaming — words appear live while you speak."
-                    : "Just transcribe: records locally, then uploads once at stop. No live words."
+                    ? "Realtime: words stream into the voice box live while you speak."
+                    : "Just transcribe: records locally, sends once at stop. No live words."
             )
             InlineRow(
+                title: "Provider",
+                help: "Soniox and OpenAI both support realtime streaming and batch transcription."
+            ) {
+                Picker("", selection: $settings.voiceProvider) {
+                    ForEach(VoiceProvider.allCases, id: \.self) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 200)
+            }
+            InlineRow(
                 title: "Mode",
-                help: "Realtime streams live partials (Soniox). Just transcribe sends one file at the end — Soniox async (stt-async-v5) or any OpenAI-compatible /audio/transcriptions endpoint."
+                help: "Switching during a session takes effect immediately — also available as a chip in the voice box."
             ) {
                 Picker("", selection: $settings.asrBackend) {
                     ForEach(ASRBackend.allCases, id: \.self) { backend in
@@ -125,47 +136,73 @@ struct ProvidersTab: View {
                 .frame(width: 240)
             }
             Hairline()
-            if settings.asrBackend == .sonioxRealtime {
+            if settings.voiceProvider == .soniox {
                 FieldRow(
                     title: "API key",
                     help: "Soniox API key. Stored in your local preferences."
                 ) {
                     SecureFieldRow(placeholder: "soniox-…", text: $settings.sonioxAPIKey)
                 }
-                FieldRow(
-                    title: "Model",
-                    help: "Realtime model identifier."
-                ) {
-                    ModelPickerField(
-                        placeholder: "stt-rt-v4",
-                        model: $settings.sonioxModel,
-                        kind: .sonioxRealtime
-                    )
+                if settings.asrBackend == .sonioxRealtime {
+                    FieldRow(
+                        title: "Realtime model",
+                        help: "Soniox streaming model (WebSocket)."
+                    ) {
+                        ModelPickerField(
+                            placeholder: "stt-rt-v4",
+                            model: $settings.sonioxModel,
+                            kind: .sonioxRealtime
+                        )
+                    }
+                } else {
+                    FieldRow(
+                        title: "Transcribe model",
+                        help: "Soniox async model — upload, poll, fetch transcript."
+                    ) {
+                        ModelPickerField(
+                            placeholder: "stt-async-v5",
+                            model: $settings.sonioxAsyncModel,
+                            kind: .sonioxAsync
+                        )
+                    }
                 }
             } else {
                 FieldRow(
-                    title: "Base URL",
-                    help: "Soniox URLs (api.soniox.com) use the async REST flow automatically; anything else is treated as OpenAI-compatible."
-                ) {
-                    FilledTextField(placeholder: "https://api.soniox.com/v1", text: $settings.httpASRBaseURL, monospaced: true)
-                }
-                FieldRow(
                     title: "API key",
-                    help: "Bearer token (optional for some local servers)."
+                    help: "OpenAI API key (used for both realtime and batch)."
                 ) {
                     SecureFieldRow(placeholder: "sk-…", text: $settings.httpASRAPIKey)
                 }
-                FieldRow(
-                    title: "Model",
-                    help: "Transcription model identifier."
-                ) {
-                    ModelPickerField(
-                        placeholder: "stt-async-v5",
-                        model: $settings.httpASRModel,
-                        kind: .transcription,
-                        baseURL: { settings.httpASRBaseURL },
-                        apiKey: { settings.httpASRAPIKey }
-                    )
+                if settings.asrBackend == .sonioxRealtime {
+                    FieldRow(
+                        title: "Realtime model",
+                        help: "Streams over wss://api.openai.com/v1/realtime (intent=transcription)."
+                    ) {
+                        ModelPickerField(
+                            placeholder: "gpt-4o-mini-transcribe",
+                            model: $settings.openAIRealtimeModel,
+                            kind: .openAIRealtime
+                        )
+                    }
+                } else {
+                    FieldRow(
+                        title: "Base URL",
+                        help: "api.openai.com or any OpenAI-compatible server."
+                    ) {
+                        FilledTextField(placeholder: "https://api.openai.com/v1", text: $settings.httpASRBaseURL, monospaced: true)
+                    }
+                    FieldRow(
+                        title: "Transcribe model",
+                        help: "Posted to /audio/transcriptions as one WAV."
+                    ) {
+                        ModelPickerField(
+                            placeholder: "gpt-4o-mini-transcribe",
+                            model: $settings.httpASRModel,
+                            kind: .transcription,
+                            baseURL: { settings.httpASRBaseURL },
+                            apiKey: { settings.httpASRAPIKey }
+                        )
+                    }
                 }
             }
         }

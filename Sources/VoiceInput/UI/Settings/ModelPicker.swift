@@ -12,10 +12,13 @@ enum ModelCatalog {
         case chat            // every model the endpoint lists
         case transcription   // audio/STT-flavoured subset (falls back to all)
         case sonioxRealtime  // curated static list
+        case sonioxAsync     // curated static list
+        case openAIRealtime  // curated realtime-transcription models
     }
 
     static let sonioxModels = ["stt-rt-v4", "stt-rt-preview", "stt-rt-v3"]
     static let sonioxAsyncModels = ["stt-async-v5", "stt-async-preview", "stt-async-v4"]
+    static let openAIRealtimeModels = ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "gpt-realtime-whisper"]
 
     /// Heuristic for surfacing audio-capable models first when the caller
     /// asked for transcription models.
@@ -25,12 +28,11 @@ enum ModelCatalog {
     )
 
     static func fetch(kind: Kind, baseURL: String, apiKey: String) async throws -> [String] {
-        if case .sonioxRealtime = kind { return sonioxModels }
-
-        // Soniox has no OpenAI-style /models listing; serve the curated async
-        // catalog when the transcribe endpoint points at Soniox.
-        if case .transcription = kind, baseURL.lowercased().contains("soniox") {
-            return sonioxAsyncModels
+        switch kind {
+        case .sonioxRealtime: return sonioxModels
+        case .sonioxAsync:    return sonioxAsyncModels
+        case .openAIRealtime: return openAIRealtimeModels
+        case .chat, .transcription: break
         }
 
         let base = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)

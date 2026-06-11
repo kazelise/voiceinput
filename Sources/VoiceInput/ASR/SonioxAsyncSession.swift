@@ -65,9 +65,9 @@ final class SonioxAsyncSession: TranscriptionSession {
             return
         }
 
-        let base = normalizedBase()
-        let apiKey = settings.httpASRAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        let model = settings.httpASRModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = "https://api.soniox.com/v1"
+        let apiKey = settings.sonioxAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = settings.sonioxAsyncModel.trimmingCharacters(in: .whitespacesAndNewlines)
         let hints = settings.languageHintsArray
         let terms = vocabulary.sonioxTerms
 
@@ -224,13 +224,6 @@ final class SonioxAsyncSession: TranscriptionSession {
             throw AsyncError.badResponse("not a JSON object")
         }
         return json
-    }
-
-    private func normalizedBase() -> String {
-        var base = settings.httpASRBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if base.isEmpty { base = "https://api.soniox.com/v1" }
-        if base.hasSuffix("/") { base.removeLast() }
-        return base
     }
 
     private func url(_ base: String, _ path: String) throws -> URL {

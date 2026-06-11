@@ -52,15 +52,17 @@ protocol TranscriptionSession: AnyObject {
 /// Creates the appropriate `TranscriptionSession` based on the current settings.
 enum TranscriptionFactory {
     static func make(settings: AppSettings, vocabulary: VocabularyStore) -> TranscriptionSession {
-        switch settings.asrBackend {
-        case .sonioxRealtime:
+        // Provider × mode matrix. Soniox batch is NOT OpenAI-compatible
+        // (file upload → create transcription → poll → fetch transcript),
+        // hence its dedicated session.
+        switch (settings.voiceProvider, settings.asrBackend) {
+        case (.soniox, .sonioxRealtime):
             return SonioxRealtimeSession(settings: settings, vocabulary: vocabulary)
-        case .openAICompatible:
-            // Soniox's batch API is NOT OpenAI-compatible (file upload →
-            // create transcription → poll → fetch transcript). Route by URL.
-            if settings.httpASRBaseURL.lowercased().contains("soniox") {
-                return SonioxAsyncSession(settings: settings, vocabulary: vocabulary)
-            }
+        case (.soniox, .openAICompatible):
+            return SonioxAsyncSession(settings: settings, vocabulary: vocabulary)
+        case (.openai, .sonioxRealtime):
+            return OpenAIRealtimeSession(settings: settings, vocabulary: vocabulary)
+        case (.openai, .openAICompatible):
             return HTTPTranscriptionSession(settings: settings, vocabulary: vocabulary)
         }
     }
