@@ -1,7 +1,9 @@
 APP_NAME := VoiceInput
 APP_BUNDLE := $(APP_NAME).app
+VERSION := $(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" Info.plist)
+DMG := $(APP_NAME)-$(VERSION).dmg
 
-.PHONY: build run install clean
+.PHONY: build run install clean dmg
 
 build:
 	swift build -c release
@@ -25,4 +27,16 @@ install: build
 
 clean:
 	swift package clean
-	rm -rf $(APP_BUNDLE)
+	rm -rf $(APP_BUNDLE) $(APP_NAME)-*.dmg
+
+# Distributable disk image: app + /Applications symlink, compressed.
+dmg: build
+	rm -f $(DMG)
+	rm -rf .dmg-staging
+	mkdir .dmg-staging
+	cp -r $(APP_BUNDLE) .dmg-staging/
+	ln -s /Applications .dmg-staging/Applications
+	hdiutil create -volname "$(APP_NAME) $(VERSION)" -srcfolder .dmg-staging \
+		-ov -format UDZO $(DMG)
+	rm -rf .dmg-staging
+	@echo "Built $(DMG)"

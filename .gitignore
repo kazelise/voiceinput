@@ -6,3 +6,4 @@ dist/
 .env*
 Secrets.local.*
 logs/
+VoiceInput-*.dmg
