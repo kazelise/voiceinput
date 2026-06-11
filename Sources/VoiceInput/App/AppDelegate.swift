@@ -57,6 +57,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Force accessory policy (no Dock icon).
         NSApp.setActivationPolicy(.accessory)
 
+        // An accessory app has no menu bar, but ⌘C/⌘V/⌘X/⌘A in our windows'
+        // text fields are dispatched through Edit-menu key equivalents — with
+        // no main menu they all go dead. Install a minimal one.
+        buildMainMenu()
+
         // Apply the saved appearance preference before any windows exist so the
         // very first window (settings/history/overlay) inherits the right look.
         AppearanceManager.shared.start()
@@ -89,6 +94,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func handlePreviewOverlayNotification(_ notification: Notification) {
         dictationController.showPreviewOverlay()
+    }
+
+    // MARK: - Main menu (Edit shortcuts)
+
+    /// Minimal main menu so standard editing key equivalents reach text fields
+    /// in the settings/history windows. Never visible (accessory app), but the
+    /// key-equivalent dispatch requires it to exist.
+    private func buildMainMenu() {
+        let mainMenu = NSMenu()
+
+        let appMenuItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "Quit VoiceInput",
+                        action: #selector(NSApplication.terminate(_:)),
+                        keyEquivalent: "q")
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+
+        NSApp.mainMenu = mainMenu
     }
 
     // MARK: - Status item construction
