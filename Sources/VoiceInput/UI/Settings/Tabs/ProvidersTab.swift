@@ -136,7 +136,11 @@ struct ProvidersTab: View {
                 title: "Model",
                 help: "Realtime model identifier."
             ) {
-                FilledTextField(placeholder: "stt-rt-v4", text: $settings.sonioxModel, monospaced: true)
+                ModelPickerField(
+                    placeholder: "stt-rt-v4",
+                    model: $settings.sonioxModel,
+                    kind: .sonioxRealtime
+                )
             }
         }
     }
@@ -165,7 +169,13 @@ struct ProvidersTab: View {
                 title: "Model",
                 help: "Transcription model identifier."
             ) {
-                FilledTextField(placeholder: "gpt-4o-mini-transcribe", text: $settings.httpASRModel, monospaced: true)
+                ModelPickerField(
+                    placeholder: "gpt-4o-mini-transcribe",
+                    model: $settings.httpASRModel,
+                    kind: .transcription,
+                    baseURL: { settings.httpASRBaseURL },
+                    apiKey: { settings.httpASRAPIKey }
+                )
             }
         }
     }
@@ -199,7 +209,13 @@ struct ProvidersTab: View {
                 title: "Model",
                 help: "Chat model identifier."
             ) {
-                FilledTextField(placeholder: "openai/gpt-oss-120b:free", text: $settings.polishModel, monospaced: true)
+                ModelPickerField(
+                    placeholder: "openai/gpt-oss-120b:free",
+                    model: $settings.polishModel,
+                    kind: .chat,
+                    baseURL: { settings.polishBaseURL },
+                    apiKey: { settings.polishAPIKey }
+                )
             }
             InlineRow(
                 title: "Reasoning effort",
@@ -262,7 +278,13 @@ struct ProvidersTab: View {
                 title: "Model",
                 help: "Translation model identifier."
             ) {
-                FilledTextField(placeholder: "hy-mt2-1.8b-translate:latest", text: $settings.translateModel, monospaced: true)
+                ModelPickerField(
+                    placeholder: "hy-mt2-1.8b-translate:latest",
+                    model: $settings.translateModel,
+                    kind: .chat,
+                    baseURL: { settings.translateBaseURL },
+                    apiKey: { settings.translateAPIKey }
+                )
             }
             Hairline()
             TestButton(title: "Test Translate", outcome: translateOutcome) {

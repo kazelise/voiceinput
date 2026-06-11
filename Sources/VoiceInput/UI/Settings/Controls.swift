@@ -384,34 +384,63 @@ struct CardHeading: View {
 
 // MARK: - Split drag handle
 
-/// A slim invisible gutter between master/detail panes that drags the sidebar
-/// width, macOS-split-view style: resize cursor on hover, live width updates
-/// while dragging, value persisted by the caller (e.g. @AppStorage).
-struct SplitDragHandle: View {
+/// A slim gutter between master/detail panes that drags the sidebar width,
+/// macOS-split-view style. Implemented as a real NSView so the drag wins even
+/// in windows with `isMovableByWindowBackground = true` — a SwiftUI
+/// DragGesture loses that race because AppKit claims the mouseDown as a
+/// window-background drag before the gesture's minimum distance is met.
+struct SplitDragHandle: NSViewRepresentable {
     @Binding var width: Double
     let range: ClosedRange<Double>
 
-    @State private var startWidth: Double?
+    func makeNSView(context: Context) -> SplitDragNSView {
+        let view = SplitDragNSView()
+        view.onBegin = { context.coordinator.startWidth = width }
+        view.onDrag = { delta in
+            let proposed = context.coordinator.startWidth + delta
+            width = min(max(proposed, range.lowerBound), range.upperBound)
+        }
+        return view
+    }
 
-    var body: some View {
-        Color.clear
-            .frame(width: 16)
-            .contentShape(Rectangle())
-            .onHover { inside in
-                if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() }
-            }
-            .gesture(
-                DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                    .onChanged { value in
-                        if startWidth == nil { startWidth = width }
-                        NSCursor.resizeLeftRight.set()
-                        let proposed = (startWidth ?? width) + value.translation.width
-                        width = min(max(proposed, range.lowerBound), range.upperBound)
-                    }
-                    .onEnded { _ in
-                        startWidth = nil
-                        NSCursor.arrow.set()
-                    }
-            )
+    func updateNSView(_ nsView: SplitDragNSView, context: Context) {}
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: SplitDragNSView, context: Context) -> CGSize? {
+        CGSize(width: 16, height: proposal.height ?? 100)
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var startWidth: Double = 0
+    }
+}
+
+final class SplitDragNSView: NSView {
+    var onBegin: (() -> Void)?
+    var onDrag: ((Double) -> Void)?
+
+    private var startMouseX: CGFloat = 0
+
+    // The whole point: without this, a window with
+    // isMovableByWindowBackground treats our mouseDown as "drag the window".
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func resetCursorRects() {
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        startMouseX = NSEvent.mouseLocation.x
+        onBegin?()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        NSCursor.resizeLeftRight.set()
+        onDrag?(NSEvent.mouseLocation.x - startMouseX)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        NSCursor.arrow.set()
     }
 }
