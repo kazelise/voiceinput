@@ -8,13 +8,12 @@ struct ProvidersTab: View {
 
     @EnvironmentObject private var settings: AppSettings
 
-    @State private var selection: ProviderItem = .sonioxRealtime
+    @State private var selection: ProviderItem = .voice
     @State private var polishOutcome: TestOutcome = .idle
     @State private var translateOutcome: TestOutcome = .idle
 
     enum ProviderItem: String, CaseIterable, Identifiable {
-        case sonioxRealtime
-        case httpASR
+        case voice
         case polish
         case translate
 
@@ -22,19 +21,17 @@ struct ProvidersTab: View {
 
         var title: String {
             switch self {
-            case .sonioxRealtime: return "Soniox Realtime"
-            case .httpASR:        return "OpenAI-compatible ASR"
-            case .polish:         return "Polish · OpenRouter"
-            case .translate:      return "Translate · Ollama"
+            case .voice:     return "Voice model"
+            case .polish:    return "Polish model"
+            case .translate: return "Translate model"
             }
         }
 
         var symbol: String {
             switch self {
-            case .sonioxRealtime: return "waveform"
-            case .httpASR:        return "network"
-            case .polish:         return "sparkles"
-            case .translate:      return "globe"
+            case .voice:     return "waveform"
+            case .polish:    return "sparkles"
+            case .translate: return "globe"
             }
         }
     }
@@ -81,10 +78,13 @@ struct ProvidersTab: View {
 
     private func isConfigured(_ item: ProviderItem) -> Bool {
         switch item {
-        case .sonioxRealtime:
-            return !settings.sonioxAPIKey.trimmed.isEmpty
-        case .httpASR:
-            return !settings.httpASRBaseURL.trimmed.isEmpty && !settings.httpASRModel.trimmed.isEmpty
+        case .voice:
+            switch settings.asrBackend {
+            case .sonioxRealtime:
+                return !settings.sonioxAPIKey.trimmed.isEmpty
+            case .openAICompatible:
+                return !settings.httpASRBaseURL.trimmed.isEmpty && !settings.httpASRModel.trimmed.isEmpty
+            }
         case .polish:
             return !settings.polishBaseURL.trimmed.isEmpty && !settings.polishModel.trimmed.isEmpty
         case .translate:
@@ -97,85 +97,76 @@ struct ProvidersTab: View {
     @ViewBuilder
     private var detail: some View {
         switch selection {
-        case .sonioxRealtime: sonioxPane
-        case .httpASR:        httpPane
-        case .polish:         polishPane
-        case .translate:      translatePane
+        case .voice:     voicePane
+        case .polish:    polishPane
+        case .translate: translatePane
         }
     }
 
-    // Shared "Active backend" picker that sits atop both ASR pages.
-    private var activeBackendPicker: some View {
-        InlineRow(
-            title: "Active backend",
-            help: "Which engine handles speech recognition for this app."
-        ) {
-            ThemedPicker(selection: $settings.asrBackend, width: 200) {
-                ForEach(ASRBackend.allCases, id: \.self) { backend in
-                    Text(backend.displayName).tag(backend)
+    private var voicePane: some View {
+        Card {
+            CardHeading(
+                title: "Voice model",
+                subtitle: settings.asrBackend == .sonioxRealtime
+                    ? "Realtime: Soniox WebSocket streaming — words appear live while you speak."
+                    : "Just transcribe: records locally, then uploads once at stop. No live words."
+            )
+            InlineRow(
+                title: "Mode",
+                help: "Realtime streams live partials (Soniox). Just transcribe sends one file at the end — Soniox async (stt-async-v5) or any OpenAI-compatible /audio/transcriptions endpoint."
+            ) {
+                Picker("", selection: $settings.asrBackend) {
+                    ForEach(ASRBackend.allCases, id: \.self) { backend in
+                        Text(backend.displayName).tag(backend)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 240)
             }
-        }
-    }
-
-    private var sonioxPane: some View {
-        Card {
-            CardHeading(
-                title: "Soniox Realtime",
-                subtitle: "Streaming WebSocket ASR with live partial results and endpoint detection."
-            )
-            activeBackendPicker
             Hairline()
-            FieldRow(
-                title: "API key",
-                help: "Soniox API key. Stored in your local preferences."
-            ) {
-                SecureFieldRow(placeholder: "soniox-…", text: $settings.sonioxAPIKey)
-            }
-            FieldRow(
-                title: "Model",
-                help: "Realtime model identifier."
-            ) {
-                ModelPickerField(
-                    placeholder: "stt-rt-v4",
-                    model: $settings.sonioxModel,
-                    kind: .sonioxRealtime
-                )
-            }
-        }
-    }
-
-    private var httpPane: some View {
-        Card {
-            CardHeading(
-                title: "OpenAI-compatible ASR",
-                subtitle: "Records locally, then uploads one WAV to /audio/transcriptions. No live partials."
-            )
-            activeBackendPicker
-            Hairline()
-            FieldRow(
-                title: "Base URL",
-                help: "e.g. https://api.openai.com/v1 or a compatible server."
-            ) {
-                FilledTextField(placeholder: "https://api.openai.com/v1", text: $settings.httpASRBaseURL, monospaced: true)
-            }
-            FieldRow(
-                title: "API key",
-                help: "Bearer token (optional for some local servers)."
-            ) {
-                SecureFieldRow(placeholder: "sk-…", text: $settings.httpASRAPIKey)
-            }
-            FieldRow(
-                title: "Model",
-                help: "Transcription model identifier."
-            ) {
-                ModelPickerField(
-                    placeholder: "gpt-4o-mini-transcribe",
-                    model: $settings.httpASRModel,
-                    kind: .transcription,
-                    baseURL: { settings.httpASRBaseURL },
-                    apiKey: { settings.httpASRAPIKey }
-                )
+            if settings.asrBackend == .sonioxRealtime {
+                FieldRow(
+                    title: "API key",
+                    help: "Soniox API key. Stored in your local preferences."
+                ) {
+                    SecureFieldRow(placeholder: "soniox-…", text: $settings.sonioxAPIKey)
+                }
+                FieldRow(
+                    title: "Model",
+                    help: "Realtime model identifier."
+                ) {
+                    ModelPickerField(
+                        placeholder: "stt-rt-v4",
+                        model: $settings.sonioxModel,
+                        kind: .sonioxRealtime
+                    )
+                }
+            } else {
+                FieldRow(
+                    title: "Base URL",
+                    help: "Soniox URLs (api.soniox.com) use the async REST flow automatically; anything else is treated as OpenAI-compatible."
+                ) {
+                    FilledTextField(placeholder: "https://api.soniox.com/v1", text: $settings.httpASRBaseURL, monospaced: true)
+                }
+                FieldRow(
+                    title: "API key",
+                    help: "Bearer token (optional for some local servers)."
+                ) {
+                    SecureFieldRow(placeholder: "sk-…", text: $settings.httpASRAPIKey)
+                }
+                FieldRow(
+                    title: "Model",
+                    help: "Transcription model identifier."
+                ) {
+                    ModelPickerField(
+                        placeholder: "stt-async-v5",
+                        model: $settings.httpASRModel,
+                        kind: .transcription,
+                        baseURL: { settings.httpASRBaseURL },
+                        apiKey: { settings.httpASRAPIKey }
+                    )
+                }
             }
         }
     }

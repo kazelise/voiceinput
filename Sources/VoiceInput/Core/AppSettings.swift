@@ -10,8 +10,16 @@ enum ASRBackend: String, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .sonioxRealtime:   return "Soniox Realtime"
-        case .openAICompatible: return "OpenAI-compatible"
+        case .sonioxRealtime:   return "Realtime"
+        case .openAICompatible: return "Just transcribe"
+        }
+    }
+
+    /// Compact label for the voice-box mode chip.
+    var chipLabel: String {
+        switch self {
+        case .sonioxRealtime:   return "Realtime"
+        case .openAICompatible: return "Transcribe"
         }
     }
 }

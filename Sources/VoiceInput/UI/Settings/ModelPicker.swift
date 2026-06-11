@@ -15,6 +15,7 @@ enum ModelCatalog {
     }
 
     static let sonioxModels = ["stt-rt-v4", "stt-rt-preview", "stt-rt-v3"]
+    static let sonioxAsyncModels = ["stt-async-v5", "stt-async-preview", "stt-async-v4"]
 
     /// Heuristic for surfacing audio-capable models first when the caller
     /// asked for transcription models.
@@ -25,6 +26,12 @@ enum ModelCatalog {
 
     static func fetch(kind: Kind, baseURL: String, apiKey: String) async throws -> [String] {
         if case .sonioxRealtime = kind { return sonioxModels }
+
+        // Soniox has no OpenAI-style /models listing; serve the curated async
+        // catalog when the transcribe endpoint points at Soniox.
+        if case .transcription = kind, baseURL.lowercased().contains("soniox") {
+            return sonioxAsyncModels
+        }
 
         let base = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !base.isEmpty,

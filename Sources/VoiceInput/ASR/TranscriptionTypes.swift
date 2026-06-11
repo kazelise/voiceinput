@@ -56,6 +56,11 @@ enum TranscriptionFactory {
         case .sonioxRealtime:
             return SonioxRealtimeSession(settings: settings, vocabulary: vocabulary)
         case .openAICompatible:
+            // Soniox's batch API is NOT OpenAI-compatible (file upload →
+            // create transcription → poll → fetch transcript). Route by URL.
+            if settings.httpASRBaseURL.lowercased().contains("soniox") {
+                return SonioxAsyncSession(settings: settings, vocabulary: vocabulary)
+            }
             return HTTPTranscriptionSession(settings: settings, vocabulary: vocabulary)
         }
     }

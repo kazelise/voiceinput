@@ -398,8 +398,22 @@ struct GlassVoiceBox: View {
     }
 
     // Tapping a chip toggles its feature for this and future sessions.
+    // The mode chip flips Realtime ↔ Just transcribe; it takes effect on the
+    // NEXT session (the engine for a live session is already running).
     private var chips: some View {
         HStack(spacing: 6) {
+            Button {
+                settings.asrBackend = settings.asrBackend == .sonioxRealtime
+                    ? .openAICompatible : .sonioxRealtime
+            } label: {
+                FeatureChip(
+                    title: settings.asrBackend.chipLabel,
+                    active: settings.asrBackend == .sonioxRealtime
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Voice mode for the next session: Realtime streams live words; Transcribe uploads once at stop.")
+
             Button { settings.polishEnabled.toggle() } label: {
                 FeatureChip(title: "Polish", active: settings.polishEnabled)
             }
