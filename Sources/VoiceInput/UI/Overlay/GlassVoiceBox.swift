@@ -40,8 +40,6 @@ struct GlassVoiceBox: View {
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    @Namespace private var glassNamespace
-
     private let boxWidth: CGFloat = 680
     private let cornerRadius: CGFloat = 28
 
@@ -54,25 +52,27 @@ struct GlassVoiceBox: View {
         return false
     }
 
+    // The box uses exactly ONE Liquid Glass surface: the background. Putting a
+    // second glass level (e.g. glass buttons) above the content inside a shared
+    // GlassEffectContainer makes the system composite all glass in one pass
+    // ABOVE the sandwiched content, fogging the transcript/waveform/chips.
     var body: some View {
-        GlassEffectContainer(spacing: 18) {
-            VStack(alignment: .leading, spacing: 14) {
-                transcriptArea
-                WaveformView(state: state)
-                    .padding(.horizontal, 2)
-                bottomBar
-            }
-            .padding(.horizontal, 26)
-            .padding(.top, 22)
-            .padding(.bottom, 18)
-            .frame(width: boxWidth, alignment: .leading)
-            .background(glassBackground)
-            .overlay(specularRim)
-            .overlay(errorRim)
-            .clipShape(shape)
-            .shadow(color: .black.opacity(0.28), radius: 28, x: 0, y: 16)
-            .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2)
+        VStack(alignment: .leading, spacing: 14) {
+            transcriptArea
+            WaveformView(state: state)
+                .padding(.horizontal, 2)
+            bottomBar
         }
+        .padding(.horizontal, 26)
+        .padding(.top, 22)
+        .padding(.bottom, 18)
+        .frame(width: boxWidth, alignment: .leading)
+        .background(glassBackground)
+        .overlay(specularRim)
+        .overlay(errorRim)
+        .clipShape(shape)
+        .shadow(color: .black.opacity(0.28), radius: 28, x: 0, y: 16)
+        .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2)
         .padding(40) // breathing room for the shadow so the panel doesn't clip it
         .animation(.spring(duration: 0.35), value: state.phase)
         .animation(.spring(duration: 0.35), value: state.silenceCountdown != nil)
@@ -281,8 +281,8 @@ struct GlassVoiceBox: View {
         }
     }
 
-    // Right cluster: glass Stop / Cancel capsules that morph in/out within the
-    // shared container via `glassEffectID`.
+    // Right cluster: Stop / Cancel capsules. Deliberately NOT glass — a second
+    // glass level above the content would fog everything beneath it (see body).
     private var actionButtons: some View {
         HStack(spacing: 8) {
             GlassActionButton(
@@ -290,14 +290,12 @@ struct GlassVoiceBox: View {
                 badge: hotkeyLabel.label,
                 action: onStop
             )
-            .glassEffectID("stop", in: glassNamespace)
 
             GlassActionButton(
                 title: "Cancel",
                 badge: "esc",
                 action: onCancel
             )
-            .glassEffectID("cancel", in: glassNamespace)
         }
         .fixedSize()
     }
@@ -395,9 +393,9 @@ private struct FeatureChip: View {
 
 // MARK: - Glass action button
 
-/// A tiny interactive Liquid Glass capsule: title + a keycap-style badge.
-/// Lives inside the box's `GlassEffectContainer` so its glass blends with the
-/// panel and morphs when shown/hidden.
+/// A tiny capsule button: title + a keycap-style badge. Renders as a crisp
+/// translucent capsule sitting ON the panel's single glass surface — it must
+/// not carry its own `glassEffect` (nested glass above content fogs the box).
 private struct GlassActionButton: View {
     let title: String
     let badge: String
@@ -424,10 +422,20 @@ private struct GlassActionButton: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
+            .background(
+                Capsule().fill(
+                    Color.primary.opacity(
+                        (colorScheme == .dark ? 0.10 : 0.06) + (hovering ? 0.05 : 0)
+                    )
+                )
+            )
+            .overlay(
+                Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.75)
+            )
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .capsule)
         .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 }
