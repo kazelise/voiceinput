@@ -66,7 +66,10 @@ struct GlassVoiceBox: View {
                 expandedBody
             }
         }
-        .animation(.spring(duration: 0.35), value: settings.voiceBoxCompact)
+        // NOTE: deliberately no .animation on voiceBoxCompact — the panel
+        // frame change is animated by AppKit (adoptContentSizeKeepingCenter),
+        // and a SwiftUI spring on top renders the content squeezed into the
+        // wrong canvas for the duration of the morph.
         .animation(.spring(duration: 0.35), value: state.phase)
         .animation(.spring(duration: 0.35), value: state.silenceCountdown != nil)
         .animation(.spring(duration: 0.35), value: settings.polishEnabled)
@@ -97,7 +100,7 @@ struct GlassVoiceBox: View {
             }
             .padding(10)
         }
-        .overlay(resizeHandles)
+        .overlay(resizeHandles(verticalEdges: true))
         // Added AFTER the resize handles so the grabber wins inside its zone;
         // edge resizing still works along the rest of the top edge.
         .overlay(alignment: .top) {
@@ -108,17 +111,21 @@ struct GlassVoiceBox: View {
 
     /// Invisible window-style grips on the glass edge: 8 pt strips along each
     /// side and 14 pt corner squares, with system frame-resize cursors.
-    private var resizeHandles: some View {
+    private func resizeHandles(verticalEdges: Bool) -> some View {
         let grip: CGFloat = 8
         let corner: CGFloat = 14
         return Color.clear
             .overlay(alignment: .top) {
-                ResizeHandle(edges: .top, controller: resizeController)
-                    .frame(height: grip).padding(.horizontal, corner)
+                if verticalEdges {
+                    ResizeHandle(edges: .top, controller: resizeController)
+                        .frame(height: grip).padding(.horizontal, corner)
+                }
             }
             .overlay(alignment: .bottom) {
-                ResizeHandle(edges: .bottom, controller: resizeController)
-                    .frame(height: grip).padding(.horizontal, corner)
+                if verticalEdges {
+                    ResizeHandle(edges: .bottom, controller: resizeController)
+                        .frame(height: grip).padding(.horizontal, corner)
+                }
             }
             .overlay(alignment: .leading) {
                 ResizeHandle(edges: .left, controller: resizeController)
@@ -178,7 +185,10 @@ struct GlassVoiceBox: View {
         .overlay(specularRim(capsule))
         .overlay(errorRim(capsule))
         .clipShape(capsule)
-        .overlay(resizeHandles)
+        // Horizontal-only edge grips: on a 46 pt capsule the top/bottom strips
+        // eat a third of the surface and make drags accidentally squash it.
+        // Corners still allow height changes deliberately.
+        .overlay(resizeHandles(verticalEdges: false))
         .modifier(BoxChrome())
     }
 

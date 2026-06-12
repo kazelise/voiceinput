@@ -185,8 +185,19 @@ final class OverlayPanel {
                            y: old.midY - size.height / 2,
                            width: size.width, height: size.height)
         isProgrammaticMove = true
-        panel.setFrame(frame, display: true, animate: false)
-        isProgrammaticMove = false
+        // AppKit animates the frame; SwiftUI relayouts each intermediate size,
+        // so the glass morphs smoothly without a competing SwiftUI animation.
+        let duration = panel.animationResizeTime(frame)
+        panel.setFrame(frame, display: true, animate: true)
+        // The animation posts didMove on every step — keep the observer
+        // suppressed until it settles, then persist the final origin once.
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.05) { [weak self] in
+            guard let self, let panel = self.panel else { return }
+            self.isProgrammaticMove = false
+            self.settings.voiceBoxOriginX = panel.frame.origin.x
+            self.settings.voiceBoxOriginY = panel.frame.origin.y
+            self.settings.voiceBoxOriginSaved = true
+        }
     }
 
     /// The hosting size: the current form's size plus 40 pt of shadow margin
