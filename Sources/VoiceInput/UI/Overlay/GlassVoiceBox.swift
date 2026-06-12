@@ -85,7 +85,11 @@ struct GlassVoiceBox: View {
                 .padding(.horizontal, 2)
             bottomBar
         }
-        .padding(24) // equal breathing room on all four sides
+        // Optically balanced insets: the top carries the drag grabber, so it
+        // needs more room or the first text line crowds/clips against it.
+        .padding(.horizontal, 22)
+        .padding(.top, 30)
+        .padding(.bottom, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(glassBackground(shape))
         .overlay(specularRim(shape))
@@ -308,7 +312,19 @@ struct GlassVoiceBox: View {
                     .id("transcriptTail")
             }
             .scrollIndicators(.hidden)
+            // Short transcripts grow upward from the waveform (teleprompter
+            // feel) instead of hanging at the top with dead space below.
+            .defaultScrollAnchor(.bottom)
             .clipped() // the box clip is the panel shape; the viewport needs its own
+            // Scrolled-out lines dissolve at the top instead of hard-clipping.
+            .mask(
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [.clear, .black],
+                                   startPoint: .top, endPoint: .bottom)
+                        .frame(height: 16)
+                    Color.black
+                }
+            )
             .onChange(of: state.transcript) { _, _ in
                 withAnimation(.easeOut(duration: 0.12)) {
                     proxy.scrollTo("transcriptTail", anchor: .bottom)
