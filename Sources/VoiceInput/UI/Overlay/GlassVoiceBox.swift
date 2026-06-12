@@ -98,6 +98,11 @@ struct GlassVoiceBox: View {
             .padding(10)
         }
         .overlay(resizeHandles)
+        // Added AFTER the resize handles so the grabber wins inside its zone;
+        // edge resizing still works along the rest of the top edge.
+        .overlay(alignment: .top) {
+            DragGrabber().padding(.top, 6)
+        }
         .modifier(BoxChrome())
     }
 
@@ -302,6 +307,16 @@ struct GlassVoiceBox: View {
             .onAppear {
                 proxy.scrollTo("transcriptTail", anchor: .bottom)
             }
+            // Re-pin to the tail when the user resizes the box: the viewport
+            // height changes without a transcript change, which otherwise
+            // leaves the scroll sitting at a stale offset.
+            .background(
+                GeometryReader { geo in
+                    Color.clear.onChange(of: geo.size) { _, _ in
+                        proxy.scrollTo("transcriptTail", anchor: .bottom)
+                    }
+                }
+            )
         }
     }
 
@@ -516,6 +531,28 @@ private struct ResizeHandle: View {
         case (_, _, true, _):     return .left
         default:                  return .right
         }
+    }
+}
+
+// MARK: - Drag grabber
+
+/// A sheet-style grab pill at the top of the box — the one place that is
+/// unambiguously "hold here to move". The whole box still drags from empty
+/// areas, but the transcript scroll view and edge resize grips swallow most
+/// of the surface; this gives dragging a reliable, visible home.
+private struct DragGrabber: View {
+    @State private var hovering = false
+
+    var body: some View {
+        Capsule()
+            .fill(Color.primary.opacity(hovering ? 0.32 : 0.15))
+            .frame(width: 42, height: 4.5)
+            .frame(width: 150, height: 20)   // generous invisible hit area
+            .contentShape(Rectangle())
+            .gesture(WindowDragGesture())
+            .onHover { hovering = $0 }
+            .animation(.easeOut(duration: 0.12), value: hovering)
+            .help("Drag to move")
     }
 }
 
