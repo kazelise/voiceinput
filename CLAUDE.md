@@ -26,6 +26,8 @@ A macOS 26+ menu-bar dictation app (single SPM executable module, no third-party
 
 The overlay (`OverlayPanel` + `GlassVoiceBox`) renders purely reactively from `AppState`/`AppSettings`; `DictationController` owns sequencing (media resume, KeyMonitor reset, error dwell) — don't move that into the UI.
 
+A second, independent pipeline is Live Captions (`Listen/` + `UI/Listen/`, toggled by Fn+Space via `ListenHotkey`): `SystemAudioCapture` (ScreenCaptureKit audio-only, needs Screen & System Audio Recording TCC) or `AudioCapture` → `ListenSession` (one Soniox WebSocket with `translation: one_way`; tokens route by `translation_status` into original/translation columns) → `ListenController`/`ListenState` → `ListenPanel`. Target-language changes restart the WS carrying displayed text; source changes swap only the capture.
+
 ## Invariants (each one encodes a fixed bug — violating them reintroduces it)
 
 - **One Liquid Glass surface per panel.** The box background is the only `glassEffect`. A second glass level above content (e.g. glass buttons) inside a `GlassEffectContainer` makes the compositor render all glass in one pass above the sandwiched content, fogging it.

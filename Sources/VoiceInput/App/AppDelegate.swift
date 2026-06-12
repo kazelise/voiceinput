@@ -42,6 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return dc
     }()
 
+    // MARK: - Live Captions
+
+    private lazy var listenController = ListenController(settings: settings)
+    private let listenHotkey = ListenHotkey()
+
     // MARK: - Status item
 
     private var statusItem: NSStatusItem?
@@ -70,6 +75,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         requestPermissionsOnLaunch()
         wireKeyMonitor()
         observeSettings()
+
+        // Live Captions hotkey (Fn+Space).
+        listenHotkey.onToggle = { [weak self] in
+            self?.listenController.toggle()
+        }
+        listenHotkey.start()
 
         // Set initial hotkey label on the overlay.
         dictationController.updateHotkeyLabel(settings.hotkeyDisplayName)
@@ -225,6 +236,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         historyItem.target = self
         menu.addItem(historyItem)
 
+        // Live Captions (Fn+Space)
+        let listenItem = NSMenuItem(
+            title: "Live Captions (Fn Space)",
+            action: #selector(toggleLiveCaptions),
+            keyEquivalent: ""
+        )
+        listenItem.target = self
+        menu.addItem(listenItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // Quit
@@ -240,6 +260,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleEnabled() {
         settings.appEnabled.toggle()
+    }
+
+    @objc private func toggleLiveCaptions() {
+        listenController.toggle()
     }
 
     @objc private func openSettings() {

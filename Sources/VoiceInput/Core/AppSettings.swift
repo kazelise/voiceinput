@@ -115,6 +115,11 @@ final class AppSettings: ObservableObject {
         static let voiceBoxOriginSaved          = "voiceBoxOriginSaved"
         static let capsuleWidth                 = "capsuleWidth"
         static let capsuleHeight                = "capsuleHeight"
+        static let listenTargetLanguage         = "listenTargetLanguage"
+        static let listenSource                 = "listenSource"
+        static let listenOriginX                = "listenOriginX"
+        static let listenOriginY                = "listenOriginY"
+        static let listenOriginSaved            = "listenOriginSaved"
         static let appearancePreference         = "appearancePreference"
         static let mediaAutoPause               = "mediaAutoPause"
         static let historyEnabled               = "historyEnabled"
@@ -188,6 +193,11 @@ final class AppSettings: ObservableObject {
         if d.object(forKey: Key.voiceBoxHeight) == nil        { d.set(200.0, forKey: Key.voiceBoxHeight) }
         if d.object(forKey: Key.capsuleWidth) == nil          { d.set(300.0, forKey: Key.capsuleWidth) }
         if d.object(forKey: Key.capsuleHeight) == nil         { d.set(46.0, forKey: Key.capsuleHeight) }
+        if d.object(forKey: Key.listenTargetLanguage) == nil  { d.set("zh", forKey: Key.listenTargetLanguage) }
+        if d.object(forKey: Key.listenSource) == nil          { d.set("system", forKey: Key.listenSource) }
+        if d.object(forKey: Key.listenOriginX) == nil         { d.set(-1.0, forKey: Key.listenOriginX) }
+        if d.object(forKey: Key.listenOriginY) == nil         { d.set(-1.0, forKey: Key.listenOriginY) }
+        if d.object(forKey: Key.listenOriginSaved) == nil     { d.set(false, forKey: Key.listenOriginSaved) }
         if d.object(forKey: Key.voiceBoxOriginSaved) == nil   {
             // Migrate from the old (-1, -1) sentinel scheme.
             let hadOrigin = d.double(forKey: Key.voiceBoxOriginX) >= 0
@@ -429,6 +439,27 @@ final class AppSettings: ObservableObject {
     /// OpenAI realtime transcription model (wss intent=transcription session).
     @Published var openAIRealtimeModel: String = UserDefaults.standard.string(forKey: Key.openAIRealtimeModel) ?? "gpt-4o-mini-transcribe" {
         didSet { defaults.set(openAIRealtimeModel, forKey: Key.openAIRealtimeModel) }
+    }
+
+    /// Live Captions: translation target (ISO code, e.g. "zh").
+    @Published var listenTargetLanguage: String = UserDefaults.standard.string(forKey: Key.listenTargetLanguage) ?? "zh" {
+        didSet { defaults.set(listenTargetLanguage, forKey: Key.listenTargetLanguage) }
+    }
+
+    /// Live Captions audio source: "system" (computer audio) or "mic".
+    @Published var listenSource: String = UserDefaults.standard.string(forKey: Key.listenSource) ?? "system" {
+        didSet { defaults.set(listenSource, forKey: Key.listenSource) }
+    }
+
+    /// Live Captions window origin (persisted after drags; meaningful when saved flag is true).
+    @Published var listenOriginX: Double = UserDefaults.standard.double(forKey: Key.listenOriginX) {
+        didSet { defaults.set(listenOriginX, forKey: Key.listenOriginX) }
+    }
+    @Published var listenOriginY: Double = UserDefaults.standard.double(forKey: Key.listenOriginY) {
+        didSet { defaults.set(listenOriginY, forKey: Key.listenOriginY) }
+    }
+    @Published var listenOriginSaved: Bool = UserDefaults.standard.bool(forKey: Key.listenOriginSaved) {
+        didSet { defaults.set(listenOriginSaved, forKey: Key.listenOriginSaved) }
     }
 
     /// Reasoning effort sent with polish requests: "off" | "low" | "medium" | "high".
