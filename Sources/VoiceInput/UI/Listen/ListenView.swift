@@ -1,34 +1,37 @@
 import SwiftUI
 
-/// Two-column Live Captions glass card: original speech on the left,
-/// Soniox one-way translation on the right. Same Liquid Glass language as the
-/// voice box — single glass surface + user-opacity scrim, specular rim, drag
-/// grabber, tail-pinned fading transcript columns.
+/// Live Captions glass card with two layouts:
+/// - **dual**: original speech (left) + translation (right), two columns.
+/// - **bar**: a wide YouTube-style caption strip — large translation, small
+///   original above — for glanceable real-time translation.
+/// Same Liquid Glass language as the voice box: single glass surface +
+/// user-opacity scrim, specular rim, drag grabber, edge resize, tail-pinned
+/// fading transcript.
 struct ListenView: View {
     @ObservedObject var state: ListenState
     @ObservedObject var settings: AppSettings
+    let resizeController: ListenResizeController
 
     var onClose: () -> Void
     var onClear: () -> Void
 
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
+    private var isBar: Bool { settings.listenMode == "bar" }
+
     private var shape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: 28, style: .continuous)
+        RoundedRectangle(cornerRadius: isBar ? 22 : 28, style: .continuous)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            columns
+        Group {
+            if isBar { barContent } else { dualContent }
         }
-        .padding(.horizontal, 22)
-        .padding(.top, 28)
-        .padding(.bottom, 18)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(glassBackground)
         .overlay(specularRim)
         .clipShape(shape)
+        .overlay(listenResizeHandles)
         .overlay(alignment: .top) { ListenDragGrabber().padding(.top, 6) }
         .shadow(color: .black.opacity(0.10), radius: 12, x: 0, y: 5)
         .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
@@ -37,23 +40,102 @@ struct ListenView: View {
         .animation(.spring(duration: 0.3), value: state.errorMessage)
     }
 
-    // MARK: - Header
+    // MARK: - Dual layout
 
-    private var header: some View {
+    private var dualContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header(compact: false)
+            HStack(alignment: .top, spacing: 16) {
+                column(
+                    titleView: AnyView(columnTitle("Original")),
+                    snapshot: state.original,
+                    placeholder: state.connecting ? "Connecting…" : "Listening…",
+                    id: "original",
+                    fontSize: 15
+                )
+                Rectangle()
+                    .fill(Theme.hairline.opacity(0.6))
+                    .frame(width: 1)
+                    .padding(.vertical, 2)
+                column(
+                    titleView: AnyView(targetMenu),
+                    snapshot: state.translation,
+                    placeholder: "Translation appears here…",
+                    id: "translation",
+                    fontSize: 15
+                )
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 28)
+        .padding(.bottom, 18)
+    }
+
+    // MARK: - Bar layout (caption strip)
+
+    private var barContent: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // Compact floating controls.
+            HStack(spacing: 8) {
+                ListenPulseDot(active: state.active, connecting: state.connecting)
+                targetMenu
+                providerMenu
+                if let error = state.errorMessage {
+                    Text(error)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(Color.red.opacity(0.9))
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength: 8)
+                sourceMenu
+                ListenIconButton(systemName: "rectangle.split.2x1", help: "Two-column view (Fn+Shift+Space)") {
+                    settings.listenMode = "dual"
+                }
+                ListenIconButton(systemName: "xmark", help: "Close (Fn+Space)", action: onClose)
+            }
+
+            // Small original line.
+            if !state.original.isEmpty {
+                singleLineTail(state.original.combined)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary.opacity(0.75))
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
+
+            // Large translation — the star of the bar.
+            if state.translation.isEmpty {
+                Text(state.connecting ? "Connecting…" : "Translation appears here…")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(Theme.textSecondary.opacity(0.55))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            } else {
+                tailPinnedScroll(snapshot: state.translation, id: "bar-translation", fontSize: 25, weight: .semibold)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 22)
+        .padding(.bottom, 18)
+    }
+
+    // MARK: - Header (dual)
+
+    private func header(compact: Bool) -> some View {
         HStack(spacing: 10) {
             ListenPulseDot(active: state.active, connecting: state.connecting)
             Text("Live Captions")
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(Theme.textPrimary.opacity(0.9))
 
+            providerMenu
             sourceMenu
 
             if let error = state.errorMessage {
                 Text(error)
                     .font(.system(size: 11))
                     .foregroundStyle(Color.red.opacity(0.9))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    .lineLimit(1).truncationMode(.middle)
             }
 
             Spacer(minLength: 12)
@@ -61,121 +143,109 @@ struct ListenView: View {
             MiniWaveform(level: state.audioLevel)
                 .frame(width: 60, height: 16)
 
+            ListenIconButton(systemName: "rectangle.compress.vertical", help: "Caption bar view (Fn+Shift+Space)") {
+                settings.listenMode = "bar"
+            }
             ListenIconButton(systemName: "trash", help: "Clear transcripts", action: onClear)
             ListenIconButton(systemName: "xmark", help: "Close (Fn+Space)", action: onClose)
         }
     }
 
-    private var sourceMenu: some View {
+    // MARK: - Menus
+
+    private var providerMenu: some View {
         Menu {
-            Button {
-                settings.listenSource = "system"
-            } label: {
-                label("System audio", checked: settings.listenSource == "system")
-            }
-            Button {
-                settings.listenSource = "mic"
-            } label: {
-                label("Microphone", checked: settings.listenSource == "mic")
+            ForEach(LiveCaptionProvider.allCases, id: \.self) { provider in
+                Button {
+                    settings.liveCaptionProvider = provider
+                } label: {
+                    pickLabel(provider.displayName, checked: settings.liveCaptionProvider == provider)
+                }
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: settings.listenSource == "mic" ? "mic" : "speaker.wave.2")
-                    .font(.system(size: 10, weight: .medium))
-                Text(settings.listenSource == "mic" ? "Microphone" : "System audio")
-                    .font(.system(size: 11, weight: .medium))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-            }
-            .foregroundStyle(Theme.textSecondary)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background(Capsule().fill(Color.primary.opacity(0.07)))
+            pill(icon: "cpu", text: settings.liveCaptionProvider.displayName, tint: Theme.textSecondary)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .help("Captioning engine")
     }
 
-    // MARK: - Columns
-
-    private var columns: some View {
-        HStack(alignment: .top, spacing: 16) {
-            column(
-                titleView: AnyView(
-                    Text("Original")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Theme.textSecondary)
-                ),
-                snapshot: state.original,
-                placeholder: state.connecting ? "Connecting…" : "Listening…",
-                id: "original"
-            )
-
-            Rectangle()
-                .fill(Theme.hairline.opacity(0.6))
-                .frame(width: 1)
-                .padding(.vertical, 2)
-
-            column(
-                titleView: AnyView(targetMenu),
-                snapshot: state.translation,
-                placeholder: "Translation appears here…",
-                id: "translation"
-            )
+    private var sourceMenu: some View {
+        Menu {
+            Button { settings.listenSource = "system" } label: {
+                pickLabel("System audio", checked: settings.listenSource == "system")
+            }
+            Button { settings.listenSource = "mic" } label: {
+                pickLabel("Microphone", checked: settings.listenSource == "mic")
+            }
+        } label: {
+            pill(icon: settings.listenSource == "mic" ? "mic" : "speaker.wave.2",
+                 text: settings.listenSource == "mic" ? "Microphone" : "System audio",
+                 tint: Theme.textSecondary)
         }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
     }
 
     private var targetMenu: some View {
         Menu {
             ForEach(ListenLanguages.all, id: \.code) { language in
-                Button {
-                    settings.listenTargetLanguage = language.code
-                } label: {
-                    label(language.name, checked: settings.listenTargetLanguage == language.code)
+                Button { settings.listenTargetLanguage = language.code } label: {
+                    pickLabel(language.name, checked: settings.listenTargetLanguage == language.code)
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "globe")
-                    .font(.system(size: 9, weight: .medium))
-                Text(ListenLanguages.name(for: settings.listenTargetLanguage))
-                    .font(.system(size: 11, weight: .semibold))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-            }
-            .foregroundStyle(Theme.accent)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background(Capsule().fill(Theme.accent.opacity(0.14)))
+            pill(icon: "globe", text: ListenLanguages.name(for: settings.listenTargetLanguage), tint: Theme.accent)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         .help("Translation target — changing restarts the stream, keeping the text so far")
     }
 
+    private func pill(icon: String, text: String, tint: Color) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 9, weight: .medium))
+            Text(text).font(.system(size: 11, weight: .semibold))
+            Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold))
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 9).padding(.vertical, 4)
+        .background(Capsule().fill(tint == Theme.accent ? Theme.accent.opacity(0.14) : Color.primary.opacity(0.07)))
+    }
+
+    private func pickLabel(_ title: String, checked: Bool) -> some View {
+        HStack {
+            if checked { Image(systemName: "checkmark") }
+            Text(title)
+        }
+    }
+
+    private func columnTitle(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Theme.textSecondary)
+    }
+
+    // MARK: - Columns / transcript
+
     private func column(titleView: AnyView, snapshot: TranscriptSnapshot,
-                        placeholder: String, id: String) -> some View {
+                        placeholder: String, id: String, fontSize: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             titleView
             if snapshot.isEmpty {
                 Text(placeholder)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: fontSize, weight: .medium))
                     .foregroundStyle(Theme.textSecondary.opacity(0.7))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             } else {
-                tailPinnedScroll(snapshot: snapshot, id: id)
+                tailPinnedScroll(snapshot: snapshot, id: id, fontSize: fontSize, weight: .medium)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func tailPinnedScroll(snapshot: TranscriptSnapshot, id: String) -> some View {
+    private func tailPinnedScroll(snapshot: TranscriptSnapshot, id: String,
+                                  fontSize: CGFloat, weight: Font.Weight) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                columnText(snapshot)
-                    .font(.system(size: 15, weight: .medium))
+                columnText(snapshot, fontSize: fontSize, weight: weight)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, 1)
@@ -187,29 +257,70 @@ struct ListenView: View {
             .mask(
                 VStack(spacing: 0) {
                     LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                        .frame(height: 14)
+                        .frame(height: 16)
                     Color.black
                 }
             )
             .onChange(of: snapshot) { _, _ in
-                withAnimation(.easeOut(duration: 0.12)) {
-                    proxy.scrollTo("tail-\(id)", anchor: .bottom)
-                }
+                withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo("tail-\(id)", anchor: .bottom) }
             }
             .onAppear { proxy.scrollTo("tail-\(id)", anchor: .bottom) }
         }
     }
 
-    private func columnText(_ snapshot: TranscriptSnapshot) -> Text {
+    private func columnText(_ snapshot: TranscriptSnapshot, fontSize: CGFloat, weight: Font.Weight) -> Text {
         var attributed = AttributedString(snapshot.finalText)
         attributed.foregroundColor = Theme.textPrimary
         var interim = AttributedString(snapshot.interimText)
         interim.foregroundColor = Theme.textSecondary.opacity(0.6)
         attributed.append(interim)
-        return Text(attributed)
+        return Text(attributed).font(.system(size: fontSize, weight: weight))
     }
 
-    // MARK: - Glass (same single-surface recipe as the voice box)
+    /// Last ~80 chars of a combined transcript, for the bar's small original line.
+    private func singleLineTail(_ text: String) -> Text {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tail = trimmed.count > 90 ? String(trimmed.suffix(90)) : trimmed
+        return Text(tail)
+    }
+
+    // MARK: - Resize handles
+
+    private var listenResizeHandles: some View {
+        let grip: CGFloat = 8
+        let corner: CGFloat = 14
+        return Color.clear
+            .overlay(alignment: .top) {
+                ListenResizeHandle(edges: .top, controller: resizeController)
+                    .frame(height: grip).padding(.horizontal, corner)
+            }
+            .overlay(alignment: .bottom) {
+                ListenResizeHandle(edges: .bottom, controller: resizeController)
+                    .frame(height: grip).padding(.horizontal, corner)
+            }
+            .overlay(alignment: .leading) {
+                ListenResizeHandle(edges: .left, controller: resizeController)
+                    .frame(width: grip).padding(.vertical, corner)
+            }
+            .overlay(alignment: .trailing) {
+                ListenResizeHandle(edges: .right, controller: resizeController)
+                    .frame(width: grip).padding(.vertical, corner)
+            }
+            .overlay(alignment: .topLeading) {
+                ListenResizeHandle(edges: [.top, .left], controller: resizeController).frame(width: corner, height: corner)
+            }
+            .overlay(alignment: .topTrailing) {
+                ListenResizeHandle(edges: [.top, .right], controller: resizeController).frame(width: corner, height: corner)
+            }
+            .overlay(alignment: .bottomLeading) {
+                ListenResizeHandle(edges: [.bottom, .left], controller: resizeController).frame(width: corner, height: corner)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                ListenResizeHandle(edges: [.bottom, .right], controller: resizeController).frame(width: corner, height: corner)
+            }
+    }
+
+    // MARK: - Glass
 
     @ViewBuilder
     private var glassBackground: some View {
@@ -218,10 +329,7 @@ struct ListenView: View {
             if !reduceTransparency && opacity < 0.99 {
                 Color.clear.glassEffect(.regular, in: shape)
             }
-            shape.fill(
-                Color(nsColor: .windowBackgroundColor)
-                    .opacity(reduceTransparency ? 1 : opacity)
-            )
+            shape.fill(Color(nsColor: .windowBackgroundColor).opacity(reduceTransparency ? 1 : opacity))
         }
     }
 
@@ -237,22 +345,57 @@ struct ListenView: View {
                         .init(color: .white.opacity(0.22), location: 0.70),
                         .init(color: .white.opacity(0.05), location: 1.00),
                     ]),
-                    center: .center,
-                    angle: .degrees(-90)
+                    center: .center, angle: .degrees(-90)
                 ),
                 lineWidth: 1.5
             )
-            shape.inset(by: 1.5)
-                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75)
+            shape.inset(by: 1.5).strokeBorder(Color.white.opacity(0.12), lineWidth: 0.75)
         }
         .blendMode(.plusLighter)
         .allowsHitTesting(false)
     }
+}
 
-    private func label(_ title: String, checked: Bool) -> some View {
-        HStack {
-            if checked { Image(systemName: "checkmark") }
-            Text(title)
+// MARK: - Resize handle
+
+private struct ListenResizeHandle: View {
+    let edges: ResizeEdges
+    let controller: ListenResizeController
+
+    var body: some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .onHover { inside in
+                guard !controller.isResizing else { return }
+                if inside { cursor.set() } else { NSCursor.arrow.set() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { _ in
+                        if !controller.isResizing { controller.begin() }
+                        cursor.set()
+                        controller.update(edges: edges)
+                    }
+                    .onEnded { _ in
+                        controller.end()
+                        NSCursor.arrow.set()
+                    }
+            )
+    }
+
+    private var cursor: NSCursor {
+        NSCursor.frameResize(position: position, directions: .all)
+    }
+    private var position: NSCursor.FrameResizePosition {
+        switch (edges.contains(.top), edges.contains(.bottom), edges.contains(.left), edges.contains(.right)) {
+        case (true, _, true, _):  return .topLeft
+        case (true, _, _, true):  return .topRight
+        case (_, true, true, _):  return .bottomLeft
+        case (_, true, _, true):  return .bottomRight
+        case (true, _, _, _):     return .top
+        case (_, true, _, _):     return .bottom
+        case (_, _, true, _):     return .left
+        default:                  return .right
         }
     }
 }
@@ -269,37 +412,28 @@ private struct ListenPulseDot: View {
             .fill(connecting ? Theme.accent.opacity(0.6) : (active ? Theme.accent : .secondary))
             .frame(width: 8, height: 8)
             .overlay(
-                Circle()
-                    .stroke(Theme.accent, lineWidth: 2)
-                    .scaleEffect(pulse ? 2.1 : 1)
-                    .opacity(pulse ? 0 : 0.6)
+                Circle().stroke(Theme.accent, lineWidth: 2)
+                    .scaleEffect(pulse ? 2.1 : 1).opacity(pulse ? 0 : 0.6)
             )
             .onAppear {
-                withAnimation(.easeOut(duration: 1.1).repeatForever(autoreverses: false)) {
-                    pulse = true
-                }
+                withAnimation(.easeOut(duration: 1.1).repeatForever(autoreverses: false)) { pulse = true }
             }
     }
 }
 
-/// Tiny five-bar level meter for the header (full waveform lives in the box).
 private struct MiniWaveform: View {
     let level: Float
-
     var body: some View {
         HStack(spacing: 2.5) {
             ForEach(0..<9, id: \.self) { index in
-                Capsule()
-                    .fill(Theme.accent.opacity(0.85))
-                    .frame(width: 2.5, height: barHeight(index))
+                Capsule().fill(Theme.accent.opacity(0.85)).frame(width: 2.5, height: barHeight(index))
             }
         }
         .animation(.easeOut(duration: 0.12), value: level)
         .accessibilityHidden(true)
     }
-
     private func barHeight(_ index: Int) -> CGFloat {
-        let envelope = sin(Double(index + 1) / 10.0 * .pi)   // taller in the middle
+        let envelope = sin(Double(index + 1) / 10.0 * .pi)
         return 3 + CGFloat(Double(level) * envelope) * 13
     }
 }
@@ -308,7 +442,6 @@ private struct ListenIconButton: View {
     let systemName: String
     let help: String
     let action: () -> Void
-
     @State private var hovering = false
 
     var body: some View {
@@ -329,7 +462,6 @@ private struct ListenIconButton: View {
 
 private struct ListenDragGrabber: View {
     @State private var hovering = false
-
     var body: some View {
         Capsule()
             .fill(Color.primary.opacity(hovering ? 0.32 : 0.15))

@@ -9,7 +9,7 @@ import os.log
 /// "translation" to the right. Standard Soniox semantics per track: finals are
 /// append-only, non-finals are replaced wholesale on every message, and the
 /// `<end>`/`<fin>` control tokens are filtered.
-final class ListenSession {
+final class SonioxListenSession: LiveCaptionSession {
     /// All callbacks on the main thread.
     var onOriginal: ((TranscriptSnapshot) -> Void)?
     var onTranslation: ((TranscriptSnapshot) -> Void)?
@@ -28,13 +28,18 @@ final class ListenSession {
 
     // MARK: - Lifecycle
 
-    func start(apiKey: String, model: String, languageHints: [String],
-               targetLanguage: String, vocabularyTerms: [String]) {
+    func start(settings: AppSettings) {
+        let apiKey = settings.sonioxAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let model = settings.sonioxModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let languageHints = settings.languageHintsArray
+        let targetLanguage = settings.listenTargetLanguage
+        let vocabularyTerms = VocabularyStore.shared.sonioxTerms
+
         bumpGeneration()
         let gen = currentGeneration()
 
         guard !apiKey.isEmpty else {
-            DispatchQueue.main.async { self.onError?("Soniox API key not configured.") }
+            DispatchQueue.main.async { self.onError?("Soniox API key not configured (Settings → Providers → Live Captions).") }
             return
         }
         guard let url = URL(string: "wss://stt-rt.soniox.com/transcribe-websocket") else { return }
@@ -116,7 +121,14 @@ final class ListenSession {
                             return
                         }
                         self.handleTokensOnQueue(json, gen: gen)
-                        if json["finished"] as? Bool == true { return }
+                        if json["finished"] as? Bool == true {
+                            // Server closed the realtime session (e.g. the
+                            // 300-minute cap). In continuous captions we never
+                            // send an end frame, so surface it rather than
+                            // freezing silently.
+                            self.reportError("Caption stream ended — press Fn+Space to resume.", gen: gen)
+                            return
+                        }
                     }
                     self.receiveLoop(task, gen: gen)
                 }

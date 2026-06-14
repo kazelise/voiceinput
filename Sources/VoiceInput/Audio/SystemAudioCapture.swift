@@ -21,6 +21,9 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unc
     /// Capture failure (permission denied, no display, stream error). Main thread.
     var onError: ((String) -> Void)?
 
+    // All three are mutated from main (stop/start), the cooperative pool (the
+    // start Task), the SCK delegate queue, and the sample queue — so every
+    // access goes through `sampleQueue` to avoid a data race.
     private var stream: SCStream?
     private let sampleQueue = DispatchQueue(label: "VoiceInput.SystemAudio")
     private var pending = Data()
@@ -29,7 +32,10 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unc
     private var stopped = false
 
     func start() {
-        stopped = false
+        sampleQueue.sync {
+            stopped = false
+            pending = Data()
+        }
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -55,11 +61,12 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unc
                 let stream = SCStream(filter: filter, configuration: config, delegate: self)
                 try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: self.sampleQueue)
                 try await stream.startCapture()
-                if self.stopped {
+                let abort = self.sampleQueue.sync { self.stopped }
+                if abort {
                     try? await stream.stopCapture()
                     return
                 }
-                self.stream = stream
+                self.sampleQueue.sync { self.stream = stream }
                 Log.audio.info("SystemAudioCapture started")
             } catch {
                 Log.audio.error("SystemAudioCapture start failed: \(error.localizedDescription)")
@@ -71,10 +78,13 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unc
     }
 
     func stop() {
-        stopped = true
-        let active = stream
-        stream = nil
-        pending = Data()
+        let active: SCStream? = sampleQueue.sync {
+            stopped = true
+            let s = stream
+            stream = nil
+            pending = Data()
+            return s
+        }
         guard let active else { return }
         Task { try? await active.stopCapture() }
         Log.audio.info("SystemAudioCapture stopped")
@@ -83,7 +93,8 @@ final class SystemAudioCapture: NSObject, SCStreamOutput, SCStreamDelegate, @unc
     // MARK: - SCStreamDelegate
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        guard !stopped else { return }
+        let isStopped = sampleQueue.sync { stopped }
+        guard !isStopped else { return }
         Log.audio.error("SystemAudioCapture stream stopped: \(error.localizedDescription)")
         DispatchQueue.main.async { [weak self] in
             self?.onError?("System audio stream stopped: \(error.localizedDescription)")

@@ -76,9 +76,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wireKeyMonitor()
         observeSettings()
 
-        // Live Captions hotkey (Fn+Space).
+        // Live Captions hotkey (Fn+Space toggle, Fn+Shift+Space layout).
         listenHotkey.onToggle = { [weak self] in
             self?.listenController.toggle()
+        }
+        listenHotkey.onToggleMode = { [weak self] in
+            self?.listenController.toggleMode()
         }
         listenHotkey.start()
 
@@ -236,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         historyItem.target = self
         menu.addItem(historyItem)
 
-        // Live Captions (Fn+Space)
+        // Live Captions (Fn+Space toggle, Fn+Shift+Space switches layout)
         let listenItem = NSMenuItem(
             title: "Live Captions (Fn Space)",
             action: #selector(toggleLiveCaptions),
@@ -244,6 +247,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         listenItem.target = self
         menu.addItem(listenItem)
+
+        let listenModeItem = NSMenuItem(
+            title: "Switch Captions Layout (Fn ⇧ Space)",
+            action: #selector(toggleLiveCaptionsMode),
+            keyEquivalent: ""
+        )
+        listenModeItem.target = self
+        menu.addItem(listenModeItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -264,6 +275,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleLiveCaptions() {
         listenController.toggle()
+    }
+
+    @objc private func toggleLiveCaptionsMode() {
+        listenController.toggleMode()
     }
 
     @objc private func openSettings() {

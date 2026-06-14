@@ -39,6 +39,21 @@ enum VoiceProvider: String, CaseIterable {
     }
 }
 
+// MARK: - LiveCaptionProvider
+
+/// Which engine drives Live Captions (transcription + translation).
+enum LiveCaptionProvider: String, CaseIterable {
+    case soniox   // one Soniox WS: original tokens + one-way translation tokens
+    case gemini   // Gemini Live API: input transcription + translated model output
+
+    var displayName: String {
+        switch self {
+        case .soniox: return "Soniox"
+        case .gemini: return "Gemini Live"
+        }
+    }
+}
+
 // MARK: - TranslateTarget
 
 enum TranslateTarget: String, CaseIterable {
@@ -120,6 +135,17 @@ final class AppSettings: ObservableObject {
         static let listenOriginX                = "listenOriginX"
         static let listenOriginY                = "listenOriginY"
         static let listenOriginSaved            = "listenOriginSaved"
+        static let liveCaptionProvider          = "liveCaptionProvider"
+        static let geminiAPIKey                 = "geminiAPIKey"
+        static let geminiLiveModel              = "geminiLiveModel"
+        static let listenMode                   = "listenMode"
+        static let listenWidth                  = "listenWidth"
+        static let listenHeight                 = "listenHeight"
+        static let listenBarWidth               = "listenBarWidth"
+        static let listenBarHeight              = "listenBarHeight"
+        static let listenBarOriginX             = "listenBarOriginX"
+        static let listenBarOriginY             = "listenBarOriginY"
+        static let listenBarOriginSaved         = "listenBarOriginSaved"
         static let appearancePreference         = "appearancePreference"
         static let mediaAutoPause               = "mediaAutoPause"
         static let historyEnabled               = "historyEnabled"
@@ -198,6 +224,17 @@ final class AppSettings: ObservableObject {
         if d.object(forKey: Key.listenOriginX) == nil         { d.set(-1.0, forKey: Key.listenOriginX) }
         if d.object(forKey: Key.listenOriginY) == nil         { d.set(-1.0, forKey: Key.listenOriginY) }
         if d.object(forKey: Key.listenOriginSaved) == nil     { d.set(false, forKey: Key.listenOriginSaved) }
+        if d.object(forKey: Key.liveCaptionProvider) == nil   { d.set(LiveCaptionProvider.soniox.rawValue, forKey: Key.liveCaptionProvider) }
+        if d.object(forKey: Key.geminiAPIKey) == nil          { d.set("", forKey: Key.geminiAPIKey) }
+        if d.object(forKey: Key.geminiLiveModel) == nil       { d.set("gemini-3.5-live-translate-preview", forKey: Key.geminiLiveModel) }
+        if d.object(forKey: Key.listenMode) == nil            { d.set("dual", forKey: Key.listenMode) }
+        if d.object(forKey: Key.listenWidth) == nil           { d.set(840.0, forKey: Key.listenWidth) }
+        if d.object(forKey: Key.listenHeight) == nil          { d.set(420.0, forKey: Key.listenHeight) }
+        if d.object(forKey: Key.listenBarWidth) == nil        { d.set(980.0, forKey: Key.listenBarWidth) }
+        if d.object(forKey: Key.listenBarHeight) == nil       { d.set(150.0, forKey: Key.listenBarHeight) }
+        if d.object(forKey: Key.listenBarOriginX) == nil      { d.set(-1.0, forKey: Key.listenBarOriginX) }
+        if d.object(forKey: Key.listenBarOriginY) == nil      { d.set(-1.0, forKey: Key.listenBarOriginY) }
+        if d.object(forKey: Key.listenBarOriginSaved) == nil  { d.set(false, forKey: Key.listenBarOriginSaved) }
         if d.object(forKey: Key.voiceBoxOriginSaved) == nil   {
             // Migrate from the old (-1, -1) sentinel scheme.
             let hadOrigin = d.double(forKey: Key.voiceBoxOriginX) >= 0
@@ -460,6 +497,63 @@ final class AppSettings: ObservableObject {
     }
     @Published var listenOriginSaved: Bool = UserDefaults.standard.bool(forKey: Key.listenOriginSaved) {
         didSet { defaults.set(listenOriginSaved, forKey: Key.listenOriginSaved) }
+    }
+
+    /// Live Captions engine: Soniox or Gemini Live.
+    @Published var liveCaptionProvider: LiveCaptionProvider = LiveCaptionProvider(
+        rawValue: UserDefaults.standard.string(forKey: Key.liveCaptionProvider) ?? ""
+    ) ?? .soniox {
+        didSet { defaults.set(liveCaptionProvider.rawValue, forKey: Key.liveCaptionProvider) }
+    }
+
+    @Published var geminiAPIKey: String = UserDefaults.standard.string(forKey: Key.geminiAPIKey) ?? "" {
+        didSet { defaults.set(geminiAPIKey, forKey: Key.geminiAPIKey) }
+    }
+
+    @Published var geminiLiveModel: String = {
+        let v = UserDefaults.standard.string(forKey: Key.geminiLiveModel) ?? "gemini-3.5-live-translate-preview"
+        return v.isEmpty ? "gemini-3.5-live-translate-preview" : v
+    }() {
+        didSet { defaults.set(geminiLiveModel, forKey: Key.geminiLiveModel) }
+    }
+
+    /// Live Captions layout: "dual" (two columns) or "bar" (YouTube-style strip).
+    @Published var listenMode: String = UserDefaults.standard.string(forKey: Key.listenMode) ?? "dual" {
+        didSet { defaults.set(listenMode, forKey: Key.listenMode) }
+    }
+
+    @Published var listenWidth: Double = {
+        let v = UserDefaults.standard.double(forKey: Key.listenWidth)
+        return v > 0 ? v : 840
+    }() {
+        didSet { defaults.set(listenWidth, forKey: Key.listenWidth) }
+    }
+    @Published var listenHeight: Double = {
+        let v = UserDefaults.standard.double(forKey: Key.listenHeight)
+        return v > 0 ? v : 420
+    }() {
+        didSet { defaults.set(listenHeight, forKey: Key.listenHeight) }
+    }
+    @Published var listenBarWidth: Double = {
+        let v = UserDefaults.standard.double(forKey: Key.listenBarWidth)
+        return v > 0 ? v : 980
+    }() {
+        didSet { defaults.set(listenBarWidth, forKey: Key.listenBarWidth) }
+    }
+    @Published var listenBarHeight: Double = {
+        let v = UserDefaults.standard.double(forKey: Key.listenBarHeight)
+        return v > 0 ? v : 150
+    }() {
+        didSet { defaults.set(listenBarHeight, forKey: Key.listenBarHeight) }
+    }
+    @Published var listenBarOriginX: Double = UserDefaults.standard.double(forKey: Key.listenBarOriginX) {
+        didSet { defaults.set(listenBarOriginX, forKey: Key.listenBarOriginX) }
+    }
+    @Published var listenBarOriginY: Double = UserDefaults.standard.double(forKey: Key.listenBarOriginY) {
+        didSet { defaults.set(listenBarOriginY, forKey: Key.listenBarOriginY) }
+    }
+    @Published var listenBarOriginSaved: Bool = UserDefaults.standard.bool(forKey: Key.listenBarOriginSaved) {
+        didSet { defaults.set(listenBarOriginSaved, forKey: Key.listenBarOriginSaved) }
     }
 
     /// Reasoning effort sent with polish requests: "off" | "low" | "medium" | "high".

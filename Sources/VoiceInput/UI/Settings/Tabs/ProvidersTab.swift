@@ -16,22 +16,25 @@ struct ProvidersTab: View {
         case voice
         case polish
         case translate
+        case liveCaptions
 
         var id: String { rawValue }
 
         var title: String {
             switch self {
-            case .voice:     return "Voice model"
-            case .polish:    return "Polish model"
-            case .translate: return "Translate model"
+            case .voice:        return "Voice model"
+            case .polish:       return "Polish model"
+            case .translate:    return "Translate model"
+            case .liveCaptions: return "Live Captions"
             }
         }
 
         var symbol: String {
             switch self {
-            case .voice:     return "waveform"
-            case .polish:    return "sparkles"
-            case .translate: return "globe"
+            case .voice:        return "waveform"
+            case .polish:       return "sparkles"
+            case .translate:    return "globe"
+            case .liveCaptions: return "captions.bubble"
             }
         }
     }
@@ -87,6 +90,11 @@ struct ProvidersTab: View {
             return !settings.polishBaseURL.trimmed.isEmpty && !settings.polishModel.trimmed.isEmpty
         case .translate:
             return !settings.translateBaseURL.trimmed.isEmpty && !settings.translateModel.trimmed.isEmpty
+        case .liveCaptions:
+            switch settings.liveCaptionProvider {
+            case .soniox: return !settings.sonioxAPIKey.trimmed.isEmpty
+            case .gemini: return !settings.geminiAPIKey.trimmed.isEmpty
+            }
         }
     }
 
@@ -95,9 +103,10 @@ struct ProvidersTab: View {
     @ViewBuilder
     private var detail: some View {
         switch selection {
-        case .voice:     voicePane
-        case .polish:    polishPane
-        case .translate: translatePane
+        case .voice:        voicePane
+        case .polish:       polishPane
+        case .translate:    translatePane
+        case .liveCaptions: liveCaptionsPane
         }
     }
 
@@ -317,6 +326,80 @@ struct ProvidersTab: View {
             Hairline()
             TestButton(title: "Test Translate", outcome: translateOutcome) {
                 runTranslateTest()
+            }
+        }
+    }
+
+    private var liveCaptionsPane: some View {
+        Card {
+            CardHeading(
+                title: "Live Captions",
+                subtitle: "Real-time transcription + translation of system audio or the mic. Toggle with Fn+Space; Fn+Shift+Space switches layout."
+            )
+            InlineRow(
+                title: "Engine",
+                help: "Soniox streams original + one-way translation. Gemini Live uses Google's speech-translation model."
+            ) {
+                Picker("", selection: $settings.liveCaptionProvider) {
+                    ForEach(LiveCaptionProvider.allCases, id: \.self) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 220)
+            }
+            Hairline()
+            if settings.liveCaptionProvider == .soniox {
+                FieldRow(
+                    title: "API key",
+                    help: "Uses your Soniox key (shared with the Voice model)."
+                ) {
+                    SecureFieldRow(placeholder: "soniox-…", text: $settings.sonioxAPIKey)
+                }
+                Text("Uses the Soniox realtime model from the Voice model page (\(settings.sonioxModel.isEmpty ? "stt-rt-v4" : settings.sonioxModel)).")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                FieldRow(
+                    title: "Gemini API key",
+                    help: "Google AI Studio key (aistudio.google.com). Preview models may require billing enabled."
+                ) {
+                    SecureFieldRow(placeholder: "AIza…", text: $settings.geminiAPIKey)
+                }
+                FieldRow(
+                    title: "Model",
+                    help: "Translate model (…-live-translate-…) outputs original + translation. A general live model is cheaper for text-only captions."
+                ) {
+                    FilledTextField(placeholder: "gemini-3.5-live-translate-preview", text: $settings.geminiLiveModel, monospaced: true)
+                }
+            }
+            Hairline()
+            InlineRow(
+                title: "Default target",
+                help: "Translate into this language (also switchable from the captions window)."
+            ) {
+                Picker("", selection: $settings.listenTargetLanguage) {
+                    ForEach(ListenLanguages.all, id: \.code) { language in
+                        Text(language.name).tag(language.code)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .frame(width: 160)
+            }
+            InlineRow(
+                title: "Audio source",
+                help: "System audio captions calls/videos (needs Screen Recording permission); microphone captions your own voice."
+            ) {
+                Picker("", selection: $settings.listenSource) {
+                    Text("System audio").tag("system")
+                    Text("Microphone").tag("mic")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 220)
             }
         }
     }

@@ -8,7 +8,10 @@ import os.log
 /// and swallows the event so a space character never reaches the focused app.
 /// NSEvent global monitor is the no-Accessibility fallback (cannot swallow).
 final class ListenHotkey {
+    /// Fn+Space — toggle Live Captions on/off.
     var onToggle: (() -> Void)?
+    /// Fn+Shift+Space — flip layout (two-column ↔ caption bar).
+    var onToggleMode: (() -> Void)?
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -36,14 +39,17 @@ final class ListenHotkey {
             guard type == .keyDown,
                   event.getIntegerValueField(.keyboardEventKeycode) == ListenHotkey.spaceKeyCode,
                   event.flags.contains(.maskSecondaryFn),
-                  // Bare Fn+Space only — don't hijack ⌘Fn+Space etc.
+                  // Fn(+Shift)+Space only — don't hijack ⌘/⌥/⌃ combos.
                   !event.flags.contains(.maskCommand),
                   !event.flags.contains(.maskAlternate),
-                  !event.flags.contains(.maskControl),
-                  !event.flags.contains(.maskShift)
+                  !event.flags.contains(.maskControl)
             else { return Unmanaged.passUnretained(event) }
 
-            DispatchQueue.main.async { monitor.onToggle?() }
+            if event.flags.contains(.maskShift) {
+                DispatchQueue.main.async { monitor.onToggleMode?() }
+            } else {
+                DispatchQueue.main.async { monitor.onToggle?() }
+            }
             return nil   // swallow
         }
 
@@ -66,9 +72,13 @@ final class ListenHotkey {
             globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
                 guard event.keyCode == UInt16(ListenHotkey.spaceKeyCode),
                       event.modifierFlags.contains(.function),
-                      event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty
+                      event.modifierFlags.intersection([.command, .option, .control]).isEmpty
                 else { return }
-                self?.onToggle?()
+                if event.modifierFlags.contains(.shift) {
+                    self?.onToggleMode?()
+                } else {
+                    self?.onToggle?()
+                }
             }
             Log.keys.warning("ListenHotkey using NSEvent fallback (no event tap)")
         }

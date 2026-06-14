@@ -29,7 +29,7 @@ final class ListenController {
     private let settings: AppSettings
     private var panel: ListenPanel?
 
-    private var session: ListenSession?
+    private var session: LiveCaptionSession?
     private var micCapture: AudioCapture?
     private var systemCapture: SystemAudioCapture?
 
@@ -55,12 +55,27 @@ final class ListenController {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.restartCapture() }
             .store(in: &cancellables)
+
+        // Switching engine (Soniox ↔ Gemini) rebuilds the session, keeping text.
+        settings.$liveCaptionProvider
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.restartSessionCarryingText() }
+            .store(in: &cancellables)
     }
 
     // MARK: - Public
 
     func toggle() {
         state.active ? stop() : start()
+    }
+
+    /// Flip the display between two-column and caption-bar (Fn+Shift+Space).
+    /// Only meaningful while captions are showing.
+    func toggleMode() {
+        guard state.active else { return }
+        settings.listenMode = (settings.listenMode == "bar") ? "dual" : "bar"
     }
 
     func start() {
@@ -102,7 +117,7 @@ final class ListenController {
     // MARK: - Session
 
     private func startSession() {
-        let newSession = ListenSession()
+        let newSession = LiveCaptionFactory.make(settings: settings)
         session = newSession
 
         newSession.onConnected = { [weak self] in
@@ -128,13 +143,7 @@ final class ListenController {
             self.state.connecting = false
         }
 
-        newSession.start(
-            apiKey: settings.sonioxAPIKey.trimmingCharacters(in: .whitespacesAndNewlines),
-            model: settings.sonioxModel.trimmingCharacters(in: .whitespacesAndNewlines),
-            languageHints: settings.languageHintsArray,
-            targetLanguage: settings.listenTargetLanguage,
-            vocabularyTerms: VocabularyStore.shared.sonioxTerms
-        )
+        newSession.start(settings: settings)
     }
 
     private func restartSessionCarryingText(carry: Bool = true) {
@@ -193,18 +202,27 @@ final class ListenController {
 // MARK: - Target language catalog
 
 enum ListenLanguages {
-    static let all: [(code: String, name: String)] = [
-        ("zh", "中文"),
-        ("en", "English"),
-        ("ja", "日本語"),
-        ("ko", "한국어"),
-        ("es", "Español"),
-        ("fr", "Français"),
-        ("de", "Deutsch"),
-        ("pt", "Português"),
+    static let all: [(code: String, name: String, english: String)] = [
+        ("zh", "中文", "Chinese (Simplified)"),
+        ("en", "English", "English"),
+        ("ja", "日本語", "Japanese"),
+        ("ko", "한국어", "Korean"),
+        ("es", "Español", "Spanish"),
+        ("fr", "Français", "French"),
+        ("de", "Deutsch", "German"),
+        ("pt", "Português", "Portuguese"),
     ]
 
     static func name(for code: String) -> String {
         all.first(where: { $0.code == code })?.name ?? code.uppercased()
+    }
+
+    static func englishName(for code: String) -> String {
+        all.first(where: { $0.code == code })?.english ?? code
+    }
+
+    /// BCP-47 code Gemini expects (Simplified Chinese needs the region).
+    static func bcp47(for code: String) -> String {
+        code == "zh" ? "zh-CN" : code
     }
 }
